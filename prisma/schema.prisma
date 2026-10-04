@@ -1,0 +1,172 @@
+// Prisma Schema — Phase 3 Company-Scoped Category Management
+// Business models (Products, Dynamic Fields, Inventory, POS) will be added in future phases.
+// IMPORTANT: Runtime database location is resolved dynamically in Electron Main Process
+// to Electron's userData/app-data directory.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Minimal system metadata model for Phase 0 foundation and database persistence verification.
+model AppMetadata {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_metadata")
+}
+
+/// Fixed system companies (Company A and Company B).
+/// Seeded automatically; no Company Management / CRUD UI.
+model Company {
+  id         String      @id @default(uuid())
+  name       String
+  code       String      @unique
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+  adminUsers AdminUser[]
+  categories Category[]
+  products   Product[]
+  metalRates MetalRate[]
+
+  @@map("companies")
+}
+
+/// Company Admin User model.
+/// Each admin belongs to exactly one Company.
+/// Authenticated admin's companyId determines the company context.
+model AdminUser {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  name         String
+  email        String
+  passwordHash String   @map("password_hash")
+  role         String   @default("COMPANY_ADMIN")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, email])
+  @@index([email])
+  @@map("admin_users")
+}
+
+/// Company-scoped Product Category model.
+/// Belongs to exactly one Company.
+/// Category names are unique within the same company.
+model Category {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  fields      CategoryField[]
+  products    Product[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("categories")
+}
+
+/// Dynamic product field configuration per Category.
+/// Belongs to a single Category, which in turn belongs to a Company.
+/// fieldKey is unique within the category and immutable after creation.
+model CategoryField {
+  id           String   @id @default(uuid())
+  categoryId   String   @map("category_id")
+  name         String
+  fieldKey     String   @map("field_key")
+  fieldType    String   @map("field_type") // 'text' | 'number' | 'select' | 'boolean'
+  required     Boolean  @default(false)
+  displayOrder Int      @default(0) @map("display_order")
+  options      String?  // JSON stringified array of strings for select type
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  category     Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  fieldValues  ProductFieldValue[]
+
+  @@unique([categoryId, fieldKey])
+  @@index([categoryId])
+  @@map("category_fields")
+}
+
+/// Product Master — Phase 5 Real Business Product Master.
+/// Belongs to a single Company and a single Category.
+/// Barcode is permanent, unique, and read-only.
+/// Archival is soft (isArchived = true); permanent deletion is forbidden.
+model Product {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  categoryId  String   @map("category_id")
+  name          String
+  barcode       String   @unique
+  stockQuantity Float    @default(0) @map("stock_quantity")
+  isArchived    Boolean  @default(false) @map("is_archived")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company     Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category    Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  fieldValues ProductFieldValue[]
+
+  @@index([companyId])
+  @@index([categoryId])
+  @@index([isArchived])
+  @@map("products")
+}
+
+/// Normalized Product Field Value — Phase 5 Dynamic Field Values.
+/// Stores typed dynamic attributes for a Product according to CategoryField definition.
+model ProductFieldValue {
+  id              String   @id @default(uuid())
+  productId       String   @map("product_id")
+  categoryFieldId String   @map("category_field_id")
+  valueText       String?  @map("value_text")
+  valueNumber     Float?   @map("value_number")
+  valueBoolean    Boolean? @map("value_boolean")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  categoryField   CategoryField @relation(fields: [categoryFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, categoryFieldId])
+  @@index([productId])
+  @@index([categoryFieldId])
+  @@map("product_field_values")
+}
+
+/// Company-scoped Daily Metal Rates (Gold & Silver).
+/// Rates are entered manually on a daily basis.
+/// Historical rates are preserved (never deleted).
+/// Latest rate (effectiveDate <= queryDate) is applied to calculate dynamic jewellery prices.
+model MetalRate {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  metalType     String   @map("metal_type") // 'GOLD' | 'SILVER'
+  ratePerGram   Float    @map("rate_per_gram")
+  effectiveDate String   @map("effective_date") // 'YYYY-MM-DD' formatted for reliable calendar date indexing
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, metalType, effectiveDate])
+  @@index([companyId])
+  @@index([effectiveDate])
+  @@map("metal_rates")
+}
+

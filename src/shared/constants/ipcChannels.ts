@@ -1,0 +1,31 @@
+export const IPC_CHANNELS = {
+  SYSTEM_GET_STATUS: 'system:get-status',
+  DATABASE_PING: 'database:ping',
+  AUTH_LOGIN: 'auth:login',
+  AUTH_LOGOUT: 'auth:logout',
+  AUTH_GET_SESSION: 'auth:get-session',
+  AUTH_TEST_PROTECTED_OP: 'auth:test-protected-operation',
+  CATEGORY_LIST: 'category:list',
+  CATEGORY_CREATE: 'category:create',
+  CATEGORY_UPDATE: 'category:update',
+  CATEGORY_GET_BY_ID: 'category:get-by-id',
+  CATEGORY_DELETE: 'category:delete',
+  CATEGORY_FIELD_LIST: 'category-field:list',
+  CATEGORY_FIELD_CREATE: 'category-field:create',
+  CATEGORY_FIELD_UPDATE: 'category-field:update',
+  CATEGORY_FIELD_DELETE: 'category-field:delete',
+  CATEGORY_FIELD_REORDER: 'category-field:reorder',
+  PRODUCT_LIST: 'product:list',
+  PRODUCT_CREATE: 'product:create',
+  PRODUCT_UPDATE: 'product:update',
+  PRODUCT_GET_BY_ID: 'product:get-by-id',
+  PRODUCT_DELETE: 'product:delete',
+  PRODUCT_PRINT_BARCODE: 'product:print-barcode',
+  METAL_RATE_GET_CURRENT: 'metal-rate:get-current',
+  METAL_RATE_SAVE_DAILY: 'metal-rate:save-daily',
+  METAL_RATE_GET_HISTORY: 'metal-rate:get-history',
+  PRICING_CALCULATE_JEWELLERY: 'pricing:calculate-jewellery',
+} as const;
+
+export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
+
