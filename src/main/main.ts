@@ -37,7 +37,7 @@ async function createMainWindow(): Promise<void> {
     minWidth: 1024,
     minHeight: 700,
     title: APP_CONSTANTS.APP_NAME,
-    backgroundColor: '#020617',
+    backgroundColor: '#FAF6EE',
     show: !isSmokeTest,
     webPreferences: {
       preload: preloadPath,

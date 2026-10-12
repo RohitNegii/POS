@@ -1,0 +1,131 @@
+// Prisma Schema — POS 2 Clean Architecture
+// Contains core company isolation, admin users, category dynamic models, and buyer management.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// System metadata model for tracking migrations and runtime integrity.
+model AppMetadata {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_metadata")
+}
+
+/// Fixed system companies (Company A and Company B).
+model Company {
+  id         String      @id @default(uuid())
+  name       String
+  code       String      @unique
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+  adminUsers AdminUser[]
+  categories Category[]
+  buyers     Buyer[]
+  metalRates MetalRate[]
+
+  @@map("companies")
+}
+
+/// Company Admin User & Cashier model.
+/// Each user belongs to a Company.
+model AdminUser {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  name         String
+  email        String
+  passwordHash String   @map("password_hash")
+  role         String   @default("COMPANY_ADMIN")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, email])
+  @@index([email])
+  @@map("admin_users")
+}
+
+/// Company-scoped Product Category model.
+model Category {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fields      CategoryField[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("categories")
+}
+
+/// Dynamic product attribute field configuration per Category.
+model CategoryField {
+  id           String   @id @default(uuid())
+  categoryId   String   @map("category_id")
+  name         String
+  fieldKey     String   @map("field_key")
+  fieldType    String   @map("field_type") // 'text' | 'number' | 'select' | 'boolean'
+  required     Boolean  @default(false)
+  displayOrder Int      @default(0) @map("display_order")
+  options      String?  // JSON stringified array of strings for select type
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  category     Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, fieldKey])
+  @@index([categoryId])
+  @@map("category_fields")
+}
+
+/// Company-scoped Buyer / Vendor Master.
+/// Allows businesses to record and manage buyers with contact and address info.
+model Buyer {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  name        String
+  phoneNumber String?  @map("phone_number")
+  email       String?
+  address     String?
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("buyers")
+}
+
+/// Company-scoped Daily Metal Rates (Gold & Silver).
+model MetalRate {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  metalType     String   @map("metal_type") // 'GOLD' | 'SILVER'
+  ratePerGram   Float    @map("rate_per_gram")
+  effectiveDate String   @map("effective_date") // 'YYYY-MM-DD'
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, metalType, effectiveDate])
+  @@index([companyId])
+  @@index([effectiveDate])
+  @@map("metal_rates")
+}

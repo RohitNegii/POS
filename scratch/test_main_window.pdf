@@ -1,0 +1,58 @@
+%PDF-1.4
+%Óëéá
+1 0 obj
+<</Title (data:text/html;charset=utf-8,%0A<!DOCTYPE html>%0A<html>%0A<head>%0A  <style>%0A    %40tailwind base%3B%0A%40tailwind components%3B%0A%40tailwind utilities%3B%0A%0A%40layer base %7B%0A  html%2C%0A  body%2C%0A  %23root %7B%0A    height%3A 100%25%3B%0A    margin%3A 0%3B%0A    padding%3A 0%3B%0A    overflow%3A hidden%3B%0A    background-color%3A %23FAF6EE%3B%0A    color%3A %23292524%3B%0A  %7D%0A%0A  %2F* Custom Warm Scrollbars *%2F%0A  %3A%3A-webkit-scrollbar %7B%0A    width%3A 6px%3B%0A    height%3A 6px%3B%0A  %7D%0A  %3A%3A-webkit-scrollbar-track %7B%0A    background%3A %23F4ECE0%3B%0A  %7D%0A  %3A%3A-webkit-scrollbar-thumb %7B%0A    background%3A %23D8CCBA%3B%0A    border-radius%3A 4px%3B%0A  %7D%0A  %3A%3A-webkit-scrollbar-thumb%3Ahover %7B%0A    background%3A %23C2B39E%3B%0A  %7D%0A%7D%0A%0A%2F* Barcode print slip is rendered offscreen \(not display%3Anone\) so that%0A   JsBarcode SVGs compute proper dimensions before innerHTML capture.%0A   Using opacity%3A0 instead of visibility%3Ahidden to ensure paint operations%0A   \(needed by JsBarcode for SVG dimension calculations\) are not skipped. *%2F%0A%23printable-barcode-slip %7B%0A  position%3A fixed%3B%0A  left%3A -9999px%3B%0A  top%3A -9999px%3B%0A  width%3A 200mm%3B%0A  opacity%3A 0%3B%0A  pointer-events%3A none%3B%0A  z-index%3A -1%3B%0A%7D%0A%0A%0A%0A%40media print %7B%0A  html%2C%0A  body %7B%0A    height%3A auto !important%3B%0A    min-height%3A 0 !important%3B%0A    overflow%3A visible !important%3B%0A    background%3A %23ffffff !important%3B%0A    background-color%3A %23ffffff !important%3B%0A    color%3A %23000000 !important%3B%0A    -webkit-print-color-adjust%3A exact !important%3B%0A    print-color-adjust%3A exact !important%3B%0A  %7D%0A%0A  %23root %7B%0A    background%3A %23ffffff !important%3B%0A    background-color%3A %23ffffff !important%3B%0A  %7D%0A%0A  %2F* CRITICAL%3A Never print modal backdrops%2C darkened overlays%2C or dialog shadows *%2F%0A  .fixed.inset-0%2C%0A  .backdrop-blur-sm%2C%0A  .backdrop-blur-xs%2C%0A  %5Brole%3D"dialog"%5D %7B%0A    display%3A none !important%3B%0A    visibility%3A hidden !important%3B%0A  %7D%0A%0A  %2F* When printing barcode stickers *%2F%0A  body.printing-barcode %7B%0A    margin%3A 0 !important%3B%0A    padding%3A 0 !important%3B%0A    background%3A %23ffffff !important%3B%0A    background-color%3A %23ffffff !important%3B%0A  %7D%0A%0A  body.printing-barcode > %23root%2C%0A  body.printing-barcode aside%2C%0A  body.printing-barcode nav%2C%0A  body.printing-barcode header%2C%0A  body.printing-barcode main%2C%0A  body.printing-barcode > *%3Anot\(%23printable-barcode-slip\) %7B%0A    display%3A none !important%3B%0A    visibility%3A hidden !important%3B%0A    height%3A 0 !important%3B%0A    width%3A 0 !important%3B%0A    max-height%3A 0 !important%3B%0A    overflow%3A hidden !important%3B%0A  %7D%0A%0A  body.printing-barcode %23printable-barcode-slip%2C%0A  body.printing-barcode > %23printable-barcode-slip %7B%0A    display%3A block !important%3B%0A    visibility%3A visible !important%3B%0A    position%3A static !important%3B%0A    margin%3A 0 !important%3B%0A    padding%3A 0 !important%3B%0A    width%3A 100%25 !important%3B%0A    background%3A %23ffffff !important%3B%0A    background-color%3A %23ffffff !important%3B%0A  %7D%0A%7D%0A%0A%0A%0A  <%2Fstyle>%0A<%2Fhead>%0A<body class%3D"printing-barcode">%0A  <div id%3D"root">%0A    <div style%3D"height%3A 1000px%3B background%3A red%3B">Main POS App Content<%2Fdiv>%0A  <%2Fdiv>%0A  <div id%3D"printable-barcode-slip">%0A    <div class%3D"barcode-label-page" style%3D"width%3A 50mm%3B height%3A 25mm%3B border%3A 1px solid black%3B">%0A      Label 1%0A    <%2Fdiv>%0A  <%2Fdiv>%0A<%2Fbody>%0A<%2Fhtml>%0A  )
+/Creator (Chromium)
+/Producer (Skia/PDF m132)
+/CreationDate (D:20261010192053+00'00')
+/ModDate (D:20261010192053+00'00')>>
+endobj
+3 0 obj
+<</ca 1
+/BM /Normal>>
+endobj
+4 0 obj
+<</Filter /FlateDecode
+/Length 119>> stream
+xœ­=
+ÃPƒwBs¡î³_ãÔ'Èœ,=@H3¥×ûCÉO!tŽ5øÆ’XŽu˜˜x•ƒ­ÃØO˜‘E­Zï©Vâ‡ÝOP.ênPFÜšÌñƒå«¾+ã¡,^h1ã?À²ºx„1'ß©x^ø>¥Þþkoñ
+0¡
+endstream
+endobj
+2 0 obj
+<</Type /Page
+/Resources <</ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/ExtGState <</G3 3 0 R>>>>
+/MediaBox [0 0 612 792]
+/Contents 4 0 R
+/StructParents 0
+/Tabs /S
+/Parent 5 0 R>>
+endobj
+5 0 obj
+<</Type /Pages
+/Count 1
+/Kids [2 0 R]>>
+endobj
+6 0 obj
+<</Type /Catalog
+/Pages 5 0 R
+/ViewerPreferences <</Type /ViewerPreferences
+/DisplayDocTitle true>>>>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000004112 00000 n 
+0000003886 00000 n 
+0000003923 00000 n 
+0000004309 00000 n 
+0000004364 00000 n 
+trailer
+<</Size 7
+/Root 6 0 R
+/Info 1 0 R>>
+startxref
+4481
+%%EOF

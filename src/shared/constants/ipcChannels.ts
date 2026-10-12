@@ -25,6 +25,20 @@ export const IPC_CHANNELS = {
   METAL_RATE_SAVE_DAILY: 'metal-rate:save-daily',
   METAL_RATE_GET_HISTORY: 'metal-rate:get-history',
   PRICING_CALCULATE_JEWELLERY: 'pricing:calculate-jewellery',
+  BILLING_SCAN_PRODUCT: 'billing:scan-product',
+  BILLING_SEARCH_PRODUCTS: 'billing:search-products',
+  BILLING_CREATE_BILL: 'billing:create-bill',
+  BILLING_LIST_BILLS: 'billing:list-bills',
+  BILLING_GET_BILL_BY_ID: 'billing:get-bill-by-id',
+  VENDOR_LIST: 'vendor:list',
+  VENDOR_CREATE: 'vendor:create',
+  VENDOR_UPDATE: 'vendor:update',
+  VENDOR_GET_BY_ID: 'vendor:get-by-id',
+  VENDOR_DELETE: 'vendor:delete',
+  PURCHASE_LIST: 'purchase:list',
+  PURCHASE_CREATE: 'purchase:create',
+  PURCHASE_UPDATE_PAYMENT: 'purchase:update-payment',
+  PURCHASE_DELETE: 'purchase:delete',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

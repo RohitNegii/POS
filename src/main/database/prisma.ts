@@ -175,8 +175,20 @@ export async function initializeDatabase(): Promise<void> {
         'ALTER TABLE "products" ADD COLUMN "stock_quantity" REAL NOT NULL DEFAULT 0;'
       );
     }
+    const hasVendorId = Array.isArray(cols) && cols.some((c) => c.name === 'vendor_id');
+    if (!hasVendorId) {
+      await client.$executeRawUnsafe(
+        'ALTER TABLE "products" ADD COLUMN "vendor_id" TEXT;'
+      );
+    }
+    const hasPurchaseDate = Array.isArray(cols) && cols.some((c) => c.name === 'purchase_date');
+    if (!hasPurchaseDate) {
+      await client.$executeRawUnsafe(
+        'ALTER TABLE "products" ADD COLUMN "purchase_date" TEXT;'
+      );
+    }
   } catch (err) {
-    console.warn('[DB] Notice during stock_quantity verification:', err);
+    console.warn('[DB] Notice during products columns verification:', err);
   }
   await client.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS "products_barcode_key" ON "products"("barcode");
@@ -236,6 +248,175 @@ export async function initializeDatabase(): Promise<void> {
   `);
   await client.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "metal_rates_effective_date_idx" ON "metal_rates"("effective_date");
+  `);
+
+  // Idempotent bootstrap for bills and bill_items tables (Unified Cross-Company Single Billing)
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "bills" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "invoice_number" TEXT NOT NULL,
+      "billing_user_id" TEXT,
+      "billing_user_name" TEXT NOT NULL,
+      "customer_name" TEXT,
+      "customer_phone" TEXT,
+      "subtotal" REAL NOT NULL DEFAULT 0,
+      "discount_percentage" REAL NOT NULL DEFAULT 0,
+      "discount" REAL NOT NULL DEFAULT 0,
+      "tax" REAL NOT NULL DEFAULT 0,
+      "total_amount" REAL NOT NULL DEFAULT 0,
+      "payment_method" TEXT NOT NULL DEFAULT 'CASH',
+      "status" TEXT NOT NULL DEFAULT 'COMPLETED',
+      "notes" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "bills_invoice_number_key" ON "bills"("invoice_number");
+  `);
+
+  // Ensure discount_percentage exists if bills table was created earlier
+  try {
+    const billCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("bills");');
+    if (Array.isArray(billCols) && !billCols.some((c) => c.name === 'discount_percentage')) {
+      await client.$executeRawUnsafe('ALTER TABLE "bills" ADD COLUMN "discount_percentage" REAL NOT NULL DEFAULT 0;');
+    }
+  } catch (err) {
+    console.warn('[DB] Notice during bills discount_percentage check:', err);
+  }
+
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "bill_items" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "bill_id" TEXT NOT NULL,
+      "product_id" TEXT,
+      "company_id" TEXT NOT NULL,
+      "company_name" TEXT NOT NULL,
+      "barcode" TEXT NOT NULL,
+      "product_name" TEXT NOT NULL,
+      "category_name" TEXT,
+      "unit_price" REAL NOT NULL DEFAULT 0,
+      "discount_percentage" REAL NOT NULL DEFAULT 0,
+      "discount_amount" REAL NOT NULL DEFAULT 0,
+      "net_unit_price" REAL NOT NULL DEFAULT 0,
+      "quantity" REAL NOT NULL DEFAULT 1,
+      "total_price" REAL NOT NULL DEFAULT 0,
+      "details_json" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "bill_items_bill_id_fkey" FOREIGN KEY ("bill_id") REFERENCES "bills" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );
+  `);
+
+  // Ensure item discount columns exist if bill_items table was created earlier
+  try {
+    const itemCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("bill_items");');
+    if (Array.isArray(itemCols)) {
+      if (!itemCols.some((c) => c.name === 'discount_percentage')) {
+        await client.$executeRawUnsafe('ALTER TABLE "bill_items" ADD COLUMN "discount_percentage" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'discount_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "bill_items" ADD COLUMN "discount_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'net_unit_price')) {
+        await client.$executeRawUnsafe('ALTER TABLE "bill_items" ADD COLUMN "net_unit_price" REAL NOT NULL DEFAULT 0;');
+      }
+    }
+  } catch (err) {
+    console.warn('[DB] Notice during bill_items discount columns check:', err);
+  }
+
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "bill_items_bill_id_idx" ON "bill_items"("bill_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "bill_items_company_id_idx" ON "bill_items"("company_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "bill_items_barcode_idx" ON "bill_items"("barcode");
+  `);
+
+  // Idempotent bootstrap for vendors table
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "vendors" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "company_id" TEXT NOT NULL,
+      "name" TEXT NOT NULL,
+      "phone_number" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "vendors_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "vendors_company_id_name_key" ON "vendors"("company_id", "name");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "vendors_company_id_idx" ON "vendors"("company_id");
+  `);
+
+  // Idempotent bootstrap for purchases table (1 record per vendor per date)
+  try {
+    const pCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("purchases");');
+    if (Array.isArray(pCols) && pCols.some((c) => c.name === 'product_id')) {
+      await client.$executeRawUnsafe('DROP TABLE IF EXISTS "purchases";');
+    }
+  } catch (err) {
+    console.warn('[DB] Notice during purchases migration check:', err);
+  }
+
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "purchases" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "company_id" TEXT NOT NULL,
+      "vendor_id" TEXT NOT NULL,
+      "purchase_date" TEXT NOT NULL,
+      "total_amount" REAL NOT NULL DEFAULT 0,
+      "notes" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "purchases_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "purchases_vendor_id_fkey" FOREIGN KEY ("vendor_id") REFERENCES "vendors" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "purchases_company_id_vendor_id_purchase_date_key" ON "purchases"("company_id", "vendor_id", "purchase_date");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchases_company_id_idx" ON "purchases"("company_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchases_vendor_id_idx" ON "purchases"("vendor_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchases_purchase_date_idx" ON "purchases"("purchase_date");
+  `);
+
+  // Idempotent bootstrap for purchase_items table (Itemized products in purchase)
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "purchase_items" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "purchase_id" TEXT NOT NULL,
+      "product_id" TEXT,
+      "product_name" TEXT NOT NULL,
+      "barcode" TEXT NOT NULL,
+      "category_name" TEXT,
+      "quantity_bought" REAL NOT NULL DEFAULT 0,
+      "unit_cost" REAL NOT NULL DEFAULT 0,
+      "total_amount" REAL NOT NULL DEFAULT 0,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "purchase_items_purchase_id_fkey" FOREIGN KEY ("purchase_id") REFERENCES "purchases" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "purchase_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_items_purchase_id_idx" ON "purchase_items"("purchase_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_items_product_id_idx" ON "purchase_items"("product_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_items_barcode_idx" ON "purchase_items"("barcode");
   `);
 
   // Ensure fixed system companies and development admin users exist idempotently

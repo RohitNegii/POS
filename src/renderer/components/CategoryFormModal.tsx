@@ -42,7 +42,6 @@ export const COMMON_ATTRIBUTE_PRESETS: AttributePreset[] = [
   { id: 'weight', label: 'Weight in Grams (Number)', name: 'Weight', fieldKey: 'weight', fieldType: 'number', required: true },
   { id: 'purity', label: 'Purity (Dropdown: 24K, 22K, 18K, 14K, Silver 925)', name: 'Purity', fieldKey: 'purity', fieldType: 'select', required: true, options: ['24K', '22K', '18K', '14K', 'Silver 925'] },
   { id: 'makingCharges', label: 'Making Charges per Gram (Number)', name: 'Making Charges per Gram', fieldKey: 'makingChargesPerGram', fieldType: 'number', required: false },
-  { id: 'sellingPrice', label: 'Selling Price (Number)', name: 'Selling Price', fieldKey: 'sellingPrice', fieldType: 'number', required: true },
   { id: 'ratePerMeter', label: 'Rate per Meter (Number)', name: 'Rate per Meter', fieldKey: 'ratePerMeter', fieldType: 'number', required: true },
   { id: 'sellingPricePerMeter', label: 'Selling Price per Meter (Number)', name: 'Selling Price per Meter', fieldKey: 'sellingPricePerMeter', fieldType: 'number', required: true },
   { id: 'colour', label: 'Colour (Dropdown: Gold, Silver, Rose Gold, Black, White...)', name: 'Colour', fieldKey: 'colour', fieldType: 'select', required: false, options: ['Gold', 'Silver', 'Rose Gold', 'Black', 'White', 'Multi-colour'] },
@@ -133,12 +132,17 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Filter out internal purchase system fields from Category management
+  // Filter out internal pricing & purchase system fields from Category management
   const INTERNAL_PURCHASE_KEYS = [
     'purchasePrice',
+    'purchaseRatePerGram',
+    'purchaseMakingChargesPerGram',
     'additionalChargesPercentage',
     'actualPurchasePrice',
     'actualPurchasePriceCode',
+    'sellingPrice',
+    'marginPercentage',
+    'margin',
   ];
 
   const filteredExistingFields = existingFields.filter(

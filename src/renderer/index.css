@@ -30,3 +30,84 @@
     background: #C2B39E;
   }
 }
+
+/* Barcode print slip is rendered offscreen (not display:none) so that
+   JsBarcode SVGs compute proper dimensions before innerHTML capture.
+   Using opacity:0 instead of visibility:hidden to ensure paint operations
+   (needed by JsBarcode for SVG dimension calculations) are not skipped. */
+#printable-barcode-slip {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  width: 200mm;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+
+
+@media print {
+  html,
+  body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #root {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+
+  /* CRITICAL: Never print modal backdrops, darkened overlays, or dialog shadows */
+  .fixed.inset-0,
+  .backdrop-blur-sm,
+  .backdrop-blur-xs,
+  [role="dialog"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* When printing barcode stickers */
+  body.printing-barcode {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+
+  body.printing-barcode > #root,
+  body.printing-barcode aside,
+  body.printing-barcode nav,
+  body.printing-barcode header,
+  body.printing-barcode main,
+  body.printing-barcode > *:not(#printable-barcode-slip) {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  body.printing-barcode #printable-barcode-slip,
+  body.printing-barcode > #printable-barcode-slip {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    opacity: 1 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+}
+
+

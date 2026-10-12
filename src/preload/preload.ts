@@ -51,6 +51,20 @@ const CHANNELS = {
   METAL_RATE_SAVE_DAILY: 'metal-rate:save-daily',
   METAL_RATE_GET_HISTORY: 'metal-rate:get-history',
   PRICING_CALCULATE_JEWELLERY: 'pricing:calculate-jewellery',
+  BILLING_SCAN_PRODUCT: 'billing:scan-product',
+  BILLING_SEARCH_PRODUCTS: 'billing:search-products',
+  BILLING_CREATE_BILL: 'billing:create-bill',
+  BILLING_LIST_BILLS: 'billing:list-bills',
+  BILLING_GET_BILL_BY_ID: 'billing:get-bill-by-id',
+  VENDOR_LIST: 'vendor:list',
+  VENDOR_CREATE: 'vendor:create',
+  VENDOR_UPDATE: 'vendor:update',
+  VENDOR_GET_BY_ID: 'vendor:get-by-id',
+  VENDOR_DELETE: 'vendor:delete',
+  PURCHASE_LIST: 'purchase:list',
+  PURCHASE_CREATE: 'purchase:create',
+  PURCHASE_UPDATE_PAYMENT: 'purchase:update-payment',
+  PURCHASE_DELETE: 'purchase:delete',
 } as const;
 
 const posDesktopApi: PosDesktopApi = Object.freeze({
@@ -117,8 +131,8 @@ const posDesktopApi: PosDesktopApi = Object.freeze({
   deleteProduct: (id: string): Promise<IpcResult<{ id: string }>> => {
     return ipcRenderer.invoke(CHANNELS.PRODUCT_DELETE, id);
   },
-  printBarcode: (productId: string): Promise<IpcResult<{ printed: boolean }>> => {
-    return ipcRenderer.invoke(CHANNELS.PRODUCT_PRINT_BARCODE, productId);
+  printBarcode: (input: any): Promise<IpcResult<{ printed: boolean }>> => {
+    return ipcRenderer.invoke(CHANNELS.PRODUCT_PRINT_BARCODE, input);
   },
   getCurrentMetalRates: (): Promise<IpcResult<any>> => {
     return ipcRenderer.invoke(CHANNELS.METAL_RATE_GET_CURRENT);
@@ -131,6 +145,48 @@ const posDesktopApi: PosDesktopApi = Object.freeze({
   },
   calculateJewelleryPrice: (input: any): Promise<IpcResult<any>> => {
     return ipcRenderer.invoke(CHANNELS.PRICING_CALCULATE_JEWELLERY, input);
+  },
+  scanBillingProduct: (barcode: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_SCAN_PRODUCT, barcode);
+  },
+  searchBillingProducts: (query?: string): Promise<IpcResult<any[]>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_SEARCH_PRODUCTS, query);
+  },
+  createBill: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_CREATE_BILL, input);
+  },
+  listBills: (filter?: any): Promise<IpcResult<any[]>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_LIST_BILLS, filter);
+  },
+  getBillById: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_GET_BILL_BY_ID, id);
+  },
+  listVendors: (search?: string): Promise<IpcResult<any[]>> => {
+    return ipcRenderer.invoke(CHANNELS.VENDOR_LIST, search);
+  },
+  createVendor: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.VENDOR_CREATE, input);
+  },
+  updateVendor: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.VENDOR_UPDATE, input);
+  },
+  getVendorById: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.VENDOR_GET_BY_ID, id);
+  },
+  deleteVendor: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.VENDOR_DELETE, id);
+  },
+  listPurchases: (filter?: any): Promise<IpcResult<any[]>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_LIST, filter);
+  },
+  createPurchase: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_CREATE, input);
+  },
+  updatePurchasePayment: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_UPDATE_PAYMENT, input);
+  },
+  deletePurchase: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_DELETE, id);
   },
 });
 

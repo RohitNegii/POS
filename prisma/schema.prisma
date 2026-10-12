@@ -34,6 +34,8 @@ model Company {
   categories Category[]
   products   Product[]
   metalRates MetalRate[]
+  vendors    Vendor[]
+  purchases  Purchase[]
 
   @@map("companies")
 }
@@ -108,22 +110,27 @@ model CategoryField {
 /// Barcode is permanent, unique, and read-only.
 /// Archival is soft (isArchived = true); permanent deletion is forbidden.
 model Product {
-  id          String   @id @default(uuid())
-  companyId   String   @map("company_id")
-  categoryId  String   @map("category_id")
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  categoryId    String   @map("category_id")
+  vendorId      String?  @map("vendor_id")
+  purchaseDate  String?  @map("purchase_date")
   name          String
   barcode       String   @unique
   stockQuantity Float    @default(0) @map("stock_quantity")
   isArchived    Boolean  @default(false) @map("is_archived")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  company     Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  category    Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  fieldValues ProductFieldValue[]
+  company       Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category      Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  vendor        Vendor?             @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  fieldValues   ProductFieldValue[]
+  purchaseItems PurchaseItem[]
 
   @@index([companyId])
   @@index([categoryId])
+  @@index([vendorId])
   @@index([isArchived])
   @@map("products")
 }
@@ -168,5 +175,119 @@ model MetalRate {
   @@index([companyId])
   @@index([effectiveDate])
   @@map("metal_rates")
+}
+
+/// Unified Single Bill for retail customer — handles products from both Company A & Company B.
+model Bill {
+  id                 String     @id @default(uuid())
+  invoiceNumber      String     @unique @map("invoice_number")
+  billingUserId      String?    @map("billing_user_id")
+  billingUserName    String     @map("billing_user_name")
+  customerName       String?    @map("customer_name")
+  customerPhone      String?    @map("customer_phone")
+  subtotal           Float      @default(0)
+  discountPercentage Float      @default(0) @map("discount_percentage")
+  discount           Float      @default(0)
+  tax                Float      @default(0)
+  totalAmount        Float      @map("total_amount")
+  paymentMethod      String     @default("CASH") @map("payment_method") // 'CASH' | 'UPI' | 'CARD' | 'SPLIT'
+  status             String     @default("COMPLETED") // 'COMPLETED' | 'CANCELLED'
+  notes              String?
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  items              BillItem[]
+
+  @@map("bills")
+}
+
+/// Item in a unified bill — contains snapshot of product info and company identification.
+model BillItem {
+  id                 String   @id @default(uuid())
+  billId             String   @map("bill_id")
+  productId          String?  @map("product_id")
+  companyId          String   @map("company_id")
+  companyName        String   @map("company_name")
+  barcode            String
+  productName        String   @map("product_name")
+  categoryName       String?  @map("category_name")
+  unitPrice          Float    @map("unit_price")
+  discountPercentage Float    @default(0) @map("discount_percentage")
+  discountAmount     Float    @default(0) @map("discount_amount")
+  netUnitPrice       Float    @default(0) @map("net_unit_price")
+  quantity           Float    @default(1)
+  totalPrice         Float    @map("total_price")
+  detailsJson        String?  @map("details_json")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  bill               Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@index([companyId])
+  @@index([barcode])
+  @@map("bill_items")
+}
+
+/// Company-scoped Vendor / Supplier model.
+model Vendor {
+  id          String     @id @default(uuid())
+  companyId   String     @map("company_id")
+  name        String
+  phoneNumber String?    @map("phone_number")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  company     Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products    Product[]
+  purchases   Purchase[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("vendors")
+}
+
+/// Purchase Order from a Vendor on a specific date (Unique per company, vendor, and date).
+model Purchase {
+  id           String         @id @default(uuid())
+  companyId    String         @map("company_id")
+  vendorId     String         @map("vendor_id")
+  purchaseDate String         @map("purchase_date") // 'YYYY-MM-DD'
+  totalAmount  Float          @default(0) @map("total_amount")
+  notes        String?
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor       Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  items        PurchaseItem[]
+
+  @@unique([companyId, vendorId, purchaseDate])
+  @@index([companyId])
+  @@index([vendorId])
+  @@index([purchaseDate])
+  @@map("purchases")
+}
+
+/// Item in a purchase order — tracks individual product purchase details.
+model PurchaseItem {
+  id             String   @id @default(uuid())
+  purchaseId     String   @map("purchase_id")
+  productId      String?  @map("product_id")
+  productName    String   @map("product_name")
+  barcode        String
+  categoryName   String?  @map("category_name")
+  quantityBought Float    @map("quantity_bought")
+  unitCost       Float    @default(0) @map("unit_cost")
+  totalAmount    Float    @default(0) @map("total_amount")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  purchase       Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseId])
+  @@index([productId])
+  @@index([barcode])
+  @@map("purchase_items")
 }
 

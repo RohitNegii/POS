@@ -124,19 +124,35 @@ export class MetalRateService {
   /**
    * Retrieves the latest applicable metal rate for the company as of a given date.
    */
-  public async getLatestMetalRate(metalType: MetalType, asOfDate?: string): Promise<MetalRateDto | null> {
-    const companyId = authService.getAuthenticatedCompanyId();
+  public async getLatestMetalRate(
+    metalType: MetalType,
+    asOfDate?: string,
+    explicitCompanyId?: string
+  ): Promise<MetalRateDto | null> {
+    let companyId = explicitCompanyId;
+    if (!companyId) {
+      try {
+        companyId = authService.getAuthenticatedCompanyId();
+      } catch {
+        // Unauthenticated or fallback
+      }
+    }
     const prisma = getPrismaClient();
     const targetDate = this.normalizeDateString(asOfDate);
 
-    const record = await prisma.metalRate.findFirst({
-      where: {
-        companyId,
-        metalType,
-        effectiveDate: {
-          lte: targetDate,
-        },
+    const where: any = {
+      metalType,
+      effectiveDate: {
+        lte: targetDate,
       },
+    };
+
+    if (companyId && companyId !== 'ALL') {
+      where.companyId = companyId;
+    }
+
+    const record = await prisma.metalRate.findFirst({
+      where,
       orderBy: [
         { effectiveDate: 'desc' },
         { createdAt: 'desc' },
@@ -220,16 +236,17 @@ export class MetalRateService {
    * Emits a strict error if current applicable metal rate is missing.
    */
   public async calculatePriceForJewellery(
-    input: JewelleryCalculationInput
+    input: JewelleryCalculationInput,
+    explicitCompanyId?: string
   ): Promise<JewelleryPriceCalculationResult> {
     const resolution = pricingService.resolvePurity(input.purity, input.metalType);
     const effectiveDate = this.normalizeDateString(input.effectiveDate);
 
-    const latestRate = await this.getLatestMetalRate(resolution.metalType, effectiveDate);
+    const latestRate = await this.getLatestMetalRate(resolution.metalType, effectiveDate, explicitCompanyId);
 
     if (!latestRate || latestRate.ratePerGram <= 0) {
       throw new Error(
-        `Missing current ${resolution.metalType} rate for your company. Please enter today's ${resolution.metalType} rate in Daily Metal Rates to calculate product price.`
+        `Missing current ${resolution.metalType} rate for this product. Please ensure ${resolution.metalType} rate is entered.`
       );
     }
 

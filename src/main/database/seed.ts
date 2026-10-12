@@ -40,6 +40,13 @@ export const FIXED_ADMINS: readonly FixedAdminDefinition[] = Object.freeze([
     passwordPlain: 'Admin@123',
     role: 'COMPANY_ADMIN',
   },
+  {
+    companyCode: 'COMPANY_A',
+    name: 'Billing Cashier',
+    email: 'billing@example.com',
+    passwordPlain: 'Billing@123',
+    role: 'BILLING_USER',
+  },
 ]);
 
 export interface SeededCompanyResult {
@@ -162,9 +169,9 @@ export async function seedDevelopmentAdmins(
   }
 
   const adminCount = await prisma.adminUser.count();
-  if (adminCount !== 2) {
+  if (adminCount < FIXED_ADMINS.length) {
     throw new Error(
-      `[SEED INTEGRITY VIOLATION] Expected exactly 2 admin users in database, found ${adminCount}.`
+      `[SEED INTEGRITY VIOLATION] Expected at least ${FIXED_ADMINS.length} users in database, found ${adminCount}.`
     );
   }
 
@@ -240,13 +247,6 @@ export const CLIENT_CATEGORY_MODELS: readonly ClientCategoryDefinition[] = Objec
         displayOrder: 3,
         options: ['Small', 'Medium', 'Large', 'Free Size'],
       },
-      {
-        name: 'Selling Price',
-        fieldKey: 'sellingPrice',
-        fieldType: 'number',
-        required: true,
-        displayOrder: 4,
-      },
     ],
   },
   {
@@ -275,13 +275,6 @@ export const CLIENT_CATEGORY_MODELS: readonly ClientCategoryDefinition[] = Objec
         required: false,
         displayOrder: 3,
         options: ['Small', 'Medium', 'Large', 'Standard'],
-      },
-      {
-        name: 'Selling Price',
-        fieldKey: 'sellingPrice',
-        fieldType: 'number',
-        required: true,
-        displayOrder: 4,
       },
     ],
   },
@@ -323,13 +316,6 @@ export const CLIENT_CATEGORY_MODELS: readonly ClientCategoryDefinition[] = Objec
         fieldType: 'text',
         required: true,
         displayOrder: 5,
-      },
-      {
-        name: 'Selling Price',
-        fieldKey: 'sellingPrice',
-        fieldType: 'number',
-        required: true,
-        displayOrder: 6,
       },
     ],
   },
@@ -452,6 +438,17 @@ export async function seedClientCategoryModels(prisma: PrismaClient): Promise<vo
         },
       });
 
+      // Ensure sellingPrice is never marked required as a category attribute
+      await prisma.categoryField.updateMany({
+        where: {
+          categoryId: category.id,
+          fieldKey: 'sellingPrice',
+        },
+        data: {
+          required: false,
+        },
+      });
+
       // Upsert the defined dynamic fields
       for (const fDef of model.fields) {
         const existingField = await prisma.categoryField.findUnique({
@@ -539,7 +536,228 @@ export async function seedInitialMetalRates(prisma: PrismaClient): Promise<void>
 }
 
 /**
- * Runs full idempotent seed for Companies, Admin Users, Client Category Models, and Baseline Metal Rates.
+ * Seeds initial demo products for Company A and Company B if none exist,
+ * allowing instant end-to-end scanning and unified multi-company billing tests.
+ */
+export async function seedSampleProducts(prisma: PrismaClient): Promise<void> {
+  const prodCount = await prisma.product.count();
+  if (prodCount > 0) {
+    return;
+  }
+
+  const compA = await prisma.company.findUnique({ where: { code: 'COMPANY_A' } });
+  const compB = await prisma.company.findUnique({ where: { code: 'COMPANY_B' } });
+  if (!compA || !compB) return;
+
+  // 1. Company A: Gold Ring
+  const catGoldA = await prisma.category.findFirst({
+    where: { companyId: compA.id, name: 'Gold / Silver Jewellery' },
+    include: { fields: true },
+  });
+  if (catGoldA) {
+    const ring = await prisma.product.create({
+      data: {
+        companyId: compA.id,
+        categoryId: catGoldA.id,
+        name: '22K Gold Bridal Ring',
+        barcode: 'AGJ000001',
+        stockQuantity: 15,
+      },
+    });
+    for (const f of catGoldA.fields) {
+      if (f.fieldKey === 'purity') {
+        await prisma.productFieldValue.create({
+          data: { productId: ring.id, categoryFieldId: f.id, valueText: '22K (916)' },
+        });
+      } else if (f.fieldKey === 'weight') {
+        await prisma.productFieldValue.create({
+          data: { productId: ring.id, categoryFieldId: f.id, valueNumber: 4.5 },
+        });
+      } else if (f.fieldKey === 'makingChargesPerGram') {
+        await prisma.productFieldValue.create({
+          data: { productId: ring.id, categoryFieldId: f.id, valueNumber: 500 },
+        });
+      }
+    }
+  }
+
+  // 2. Company A: German Silver Bowl
+  const catGSA = await prisma.category.findFirst({
+    where: { companyId: compA.id, name: 'German Silver / German Metal' },
+    include: { fields: true },
+  });
+  if (catGSA) {
+    const bowl = await prisma.product.create({
+      data: {
+        companyId: compA.id,
+        categoryId: catGSA.id,
+        name: 'German Silver Antique Bowl',
+        barcode: 'AGS000002',
+        stockQuantity: 30,
+      },
+    });
+    for (const f of catGSA.fields) {
+      if (f.fieldKey === 'sellingPrice') {
+        await prisma.productFieldValue.create({
+          data: { productId: bowl.id, categoryFieldId: f.id, valueNumber: 1450 },
+        });
+      } else if (f.fieldKey === 'colour') {
+        await prisma.productFieldValue.create({
+          data: { productId: bowl.id, categoryFieldId: f.id, valueText: 'Antique Gold' },
+        });
+      }
+    }
+  }
+
+  // 3. Company B: Pure Silk Fabric
+  const catFabB = await prisma.category.findFirst({
+    where: { companyId: compB.id, name: 'Home Décor — Meter Based' },
+    include: { fields: true },
+  });
+  if (catFabB) {
+    const silk = await prisma.product.create({
+      data: {
+        companyId: compB.id,
+        categoryId: catFabB.id,
+        name: 'Royal Silk Brocade Fabric',
+        barcode: 'BHD000001',
+        stockQuantity: 50,
+      },
+    });
+    for (const f of catFabB.fields) {
+      if (f.fieldKey === 'sellingPricePerMeter') {
+        await prisma.productFieldValue.create({
+          data: { productId: silk.id, categoryFieldId: f.id, valueNumber: 850 },
+        });
+      } else if (f.fieldKey === 'ratePerMeter') {
+        await prisma.productFieldValue.create({
+          data: { productId: silk.id, categoryFieldId: f.id, valueNumber: 750 },
+        });
+      } else if (f.fieldKey === 'material') {
+        await prisma.productFieldValue.create({
+          data: { productId: silk.id, categoryFieldId: f.id, valueText: 'Pure Silk' },
+        });
+      }
+    }
+  }
+
+  // 4. Company B: Kundan Choker Necklace
+  const catNeckB = await prisma.category.findFirst({
+    where: { companyId: compB.id, name: 'Artificial / Imitation Jewellery' },
+    include: { fields: true },
+  });
+  if (catNeckB) {
+    const neck = await prisma.product.create({
+      data: {
+        companyId: compB.id,
+        categoryId: catNeckB.id,
+        name: 'Kundan Choker Necklace',
+        barcode: 'BAI000002',
+        stockQuantity: 20,
+      },
+    });
+    for (const f of catNeckB.fields) {
+      if (f.fieldKey === 'sellingPrice') {
+        await prisma.productFieldValue.create({
+          data: { productId: neck.id, categoryFieldId: f.id, valueNumber: 2600 },
+        });
+      } else if (f.fieldKey === 'colour') {
+        await prisma.productFieldValue.create({
+          data: { productId: neck.id, categoryFieldId: f.id, valueText: 'Gold' },
+        });
+      }
+    }
+  }
+
+  // 5. Company A: ₹50 Demo Item (German Silver Coin)
+  const existingCoin = await prisma.product.findUnique({ where: { barcode: 'AGS000050' } });
+  if (!existingCoin && catGSA) {
+    const coin = await prisma.product.create({
+      data: {
+        companyId: compA.id,
+        categoryId: catGSA.id,
+        name: 'German Silver Coin (₹50 Test Item)',
+        barcode: 'AGS000050',
+        stockQuantity: 100,
+      },
+    });
+    for (const f of catGSA.fields) {
+      if (f.fieldKey === 'sellingPrice') {
+        await prisma.productFieldValue.create({
+          data: { productId: coin.id, categoryFieldId: f.id, valueNumber: 50 },
+        });
+      } else if (f.fieldKey === 'colour') {
+        await prisma.productFieldValue.create({
+          data: { productId: coin.id, categoryFieldId: f.id, valueText: 'Silver' },
+        });
+      }
+    }
+  }
+
+  // 6. Company B: ₹50 Demo Item (Imitation Brooch Pin)
+  const existingBrooch = await prisma.product.findUnique({ where: { barcode: 'BAI000050' } });
+  if (!existingBrooch && catNeckB) {
+    const brooch = await prisma.product.create({
+      data: {
+        companyId: compB.id,
+        categoryId: catNeckB.id,
+        name: 'Floral Brooch Pin (₹50 Test Item)',
+        barcode: 'BAI000050',
+        stockQuantity: 100,
+      },
+    });
+    for (const f of catNeckB.fields) {
+      if (f.fieldKey === 'sellingPrice') {
+        await prisma.productFieldValue.create({
+          data: { productId: brooch.id, categoryFieldId: f.id, valueNumber: 50 },
+        });
+      } else if (f.fieldKey === 'colour') {
+        await prisma.productFieldValue.create({
+          data: { productId: brooch.id, categoryFieldId: f.id, valueText: 'Gold' },
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Idempotently seeds sample vendors for Company A & Company B if table is empty.
+ */
+export async function seedSampleVendors(prisma: PrismaClient): Promise<void> {
+  const vendorCount = await prisma.vendor.count();
+  if (vendorCount === 0) {
+    const compA = await prisma.company.findUnique({ where: { code: 'COMPANY_A' } });
+    const compB = await prisma.company.findUnique({ where: { code: 'COMPANY_B' } });
+    if (compA) {
+      await prisma.vendor.create({
+        data: {
+          companyId: compA.id,
+          name: 'Surat Bullion & Gems Traders',
+          phoneNumber: '+91 98251 44520',
+        },
+      });
+      await prisma.vendor.create({
+        data: {
+          companyId: compA.id,
+          name: 'Zaveri Jewellers Wholesale',
+          phoneNumber: '+91 98200 12345',
+        },
+      });
+    }
+    if (compB) {
+      await prisma.vendor.create({
+        data: {
+          companyId: compB.id,
+          name: 'Jaipur Heritage Crafts & Brocade',
+          phoneNumber: '+91 94140 88710',
+        },
+      });
+    }
+  }
+}
+
+/**
+ * Runs full idempotent seed for Companies, Admin Users, Client Category Models, Baseline Metal Rates, and Sample Products.
  */
 export async function seedAll(prisma: PrismaClient): Promise<{
   companies: SeededCompanyResult[];
@@ -549,6 +767,9 @@ export async function seedAll(prisma: PrismaClient): Promise<{
   const admins = await seedDevelopmentAdmins(prisma);
   await seedClientCategoryModels(prisma);
   await seedInitialMetalRates(prisma);
+  await seedSampleProducts(prisma);
+  await seedSampleVendors(prisma);
   return { companies, admins };
 }
+
 

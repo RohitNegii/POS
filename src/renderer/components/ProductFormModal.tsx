@@ -6,6 +6,7 @@ import type {
   JewelleryPriceCalculationResult,
   ProductDto,
   ProductFieldValueInput,
+  VendorDto,
 } from '../../shared/types/ipc';
 import { ipcClient } from '../services/ipcClient';
 import { generateActualPurchasePriceCode } from '../../shared/utils/purchaseCode';
@@ -36,10 +37,26 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [fieldValues, setFieldValues] = useState<Record<string, { valueText?: string; valueNumber?: number | string; valueBoolean?: boolean }>>({});
   const [stockQuantity, setStockQuantity] = useState<string | number>('0');
   const [purchasePrice, setPurchasePrice] = useState<string | number>('');
+  const [purchaseRatePerGram, setPurchaseRatePerGram] = useState<string | number>('');
+  const [purchaseMakingChargesPerGram, setPurchaseMakingChargesPerGram] = useState<string | number>('');
   const [additionalCharges, setAdditionalCharges] = useState<string | number>('');
   const [actualPurchasePrice, setActualPurchasePrice] = useState<string | number>('');
+  const [sellingPrice, setSellingPrice] = useState<string | number>('');
+  const [margin, setMargin] = useState<string | number>('');
+  const [lastEditedPricingField, setLastEditedPricingField] = useState<'sellingPrice' | 'margin' | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
   const [liveCalculation, setLiveCalculation] = useState<JewelleryPriceCalculationResult | null>(null);
+
+  // Vendor & Purchase Date States
+  const [vendors, setVendors] = useState<VendorDto[]>([]);
+  const [selectedVendorId, setSelectedVendorId] = useState<string>('');
+  const [purchaseDate, setPurchaseDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [isQuickAddVendorOpen, setIsQuickAddVendorOpen] = useState<boolean>(false);
+  const [quickVendorName, setQuickVendorName] = useState<string>('');
+  const [quickVendorPhone, setQuickVendorPhone] = useState<string>('');
+  const [quickVendorSubmitting, setQuickVendorSubmitting] = useState<boolean>(false);
 
 
   const actualPurchasePriceCode = generateActualPurchasePriceCode(
@@ -47,6 +64,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       ? actualPurchasePrice
       : null
   );
+
+  const computeNumericActualPurchasePrice = (pVal: string | number, cVal: string | number): number | null => {
+    if (pVal === '' || pVal === null || pVal === undefined) return null;
+    const p = typeof pVal === 'number' ? pVal : parseFloat(String(pVal));
+    if (isNaN(p) || p < 0) return null;
+    const c = cVal === '' || cVal === null || cVal === undefined ? 0 : (typeof cVal === 'number' ? cVal : parseFloat(String(cVal)));
+    const charges = isNaN(c) || c < 0 ? 0 : c;
+    return Math.round((p + (p * charges / 100)) * 100) / 100;
+  };
 
   const calculateActualPurchasePrice = (pVal: string | number, cVal: string | number) => {
     if (pVal === '' || pVal === null || pVal === undefined) {
@@ -67,14 +93,88 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setActualPurchasePrice(actual);
   };
 
+  const handleSellingPriceChange = (val: string) => {
+    setSellingPrice(val);
+    setLastEditedPricingField('sellingPrice');
+
+    if (val.trim() === '') {
+      setMargin('');
+      return;
+    }
+
+    const sp = parseFloat(val);
+    if (isNaN(sp)) {
+      setMargin('');
+      return;
+    }
+
+    const cp = computeNumericActualPurchasePrice(purchasePrice, additionalCharges);
+    if (cp !== null && cp > 0) {
+      const computedMargin = Math.round(((sp - cp) / cp) * 100 * 100) / 100;
+      setMargin(computedMargin);
+    }
+  };
+
+  const handleMarginChange = (val: string) => {
+    setMargin(val);
+    setLastEditedPricingField('margin');
+
+    if (val.trim() === '') {
+      return;
+    }
+
+    const m = parseFloat(val);
+    if (isNaN(m)) {
+      return;
+    }
+
+    const cp = computeNumericActualPurchasePrice(purchasePrice, additionalCharges);
+    if (cp !== null && cp > 0) {
+      const computedSP = Math.round((cp + (cp * m / 100)) * 100) / 100;
+      setSellingPrice(computedSP);
+    }
+  };
+
+  const recalculatePricingOnCostChange = (
+    newP: string | number,
+    newC: string | number
+  ) => {
+    const cp = computeNumericActualPurchasePrice(newP, newC);
+    if (cp === null || cp <= 0) return;
+
+    if (lastEditedPricingField === 'margin' && margin !== '' && margin !== null && margin !== undefined) {
+      const m = typeof margin === 'number' ? margin : parseFloat(String(margin));
+      if (!isNaN(m)) {
+        const computedSP = Math.round((cp + (cp * m / 100)) * 100) / 100;
+        setSellingPrice(computedSP);
+      }
+    } else if (sellingPrice !== '' && sellingPrice !== null && sellingPrice !== undefined) {
+      const sp = typeof sellingPrice === 'number' ? sellingPrice : parseFloat(String(sellingPrice));
+      if (!isNaN(sp)) {
+        const computedMargin = Math.round(((sp - cp) / cp) * 100 * 100) / 100;
+        setMargin(computedMargin);
+      }
+    } else if (margin !== '' && margin !== null && margin !== undefined) {
+      const m = typeof margin === 'number' ? margin : parseFloat(String(margin));
+      if (!isNaN(m)) {
+        const computedSP = Math.round((cp + (cp * m / 100)) * 100) / 100;
+        setSellingPrice(computedSP);
+      }
+    }
+  };
+
   const handlePurchasePriceChange = (val: string) => {
     setPurchasePrice(val);
     calculateActualPurchasePrice(val, additionalCharges);
+    recalculatePricingOnCostChange(val, additionalCharges);
   };
 
   const handleAdditionalChargesChange = (val: string) => {
     setAdditionalCharges(val);
-    calculateActualPurchasePrice(purchasePrice, val);
+    if (!isJewelleryCategory) {
+      calculateActualPurchasePrice(purchasePrice, val);
+      recalculatePricingOnCostChange(purchasePrice, val);
+    }
   };
 
   // Initialize or reset when modal opens or editingProduct changes
@@ -84,23 +184,46 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setProductName('');
       setStockQuantity('0');
       setPurchasePrice('');
+      setPurchaseRatePerGram('');
+      setPurchaseMakingChargesPerGram('');
       setAdditionalCharges('');
       setActualPurchasePrice('');
+      setSellingPrice('');
+      setMargin('');
+      setLastEditedPricingField(null);
+      setSelectedVendorId('');
+      setPurchaseDate(new Date().toISOString().split('T')[0]);
+      setIsQuickAddVendorOpen(false);
+      setQuickVendorName('');
+      setQuickVendorPhone('');
       setCategoryFields([]);
       setFieldValues({});
       return;
     }
 
+    // Load available vendors
+    ipcClient.listVendors().then((res) => {
+      if (res.success) {
+        setVendors(res.data);
+      }
+    }).catch(() => {});
+
     if (editingProduct) {
       setSelectedCategoryId(editingProduct.categoryId);
       setProductName(editingProduct.name);
       setStockQuantity(editingProduct.stockQuantity ?? 0);
+      setSelectedVendorId(editingProduct.vendorId || '');
+      setPurchaseDate(editingProduct.purchaseDate || new Date().toISOString().split('T')[0]);
 
       // Pre-fill existing field values
       const initialMap: Record<string, { valueText?: string; valueNumber?: number | string; valueBoolean?: boolean }> = {};
       let initialPurchasePrice: string | number = editingProduct.purchasePrice ?? '';
+      let initialPurchaseRatePerGram: string | number = editingProduct.purchaseRatePerGram ?? '';
+      let initialPurchaseMakingChargesPerGram: string | number = editingProduct.purchaseMakingChargesPerGram ?? '';
       let initialAdditionalCharges: string | number = editingProduct.additionalChargesPercentage ?? '';
       let initialActualPurchasePrice: string | number = editingProduct.actualPurchasePrice ?? '';
+      let initialSellingPrice: string | number = editingProduct.sellingPrice ?? '';
+      let initialMargin: string | number = editingProduct.marginPercentage ?? '';
 
       if (editingProduct.fieldValues) {
         for (const fv of editingProduct.fieldValues) {
@@ -109,19 +232,40 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             valueNumber: fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '',
             valueBoolean: fv.valueBoolean ?? false,
           };
-          if (fv.categoryField?.fieldKey === 'purchasePrice' && initialPurchasePrice === '') {
+          if (fv.categoryField?.fieldKey === 'purchaseRatePerGram' && initialPurchaseRatePerGram === '') {
+            initialPurchaseRatePerGram = fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '';
+          } else if (fv.categoryField?.fieldKey === 'purchaseMakingChargesPerGram' && initialPurchaseMakingChargesPerGram === '') {
+            initialPurchaseMakingChargesPerGram = fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '';
+          } else if (fv.categoryField?.fieldKey === 'purchasePrice' && initialPurchasePrice === '') {
             initialPurchasePrice = fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '';
           } else if (fv.categoryField?.fieldKey === 'additionalChargesPercentage' && initialAdditionalCharges === '') {
             initialAdditionalCharges = fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '';
           } else if (fv.categoryField?.fieldKey === 'actualPurchasePrice' && initialActualPurchasePrice === '') {
             initialActualPurchasePrice = fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '';
+          } else if (fv.categoryField?.fieldKey === 'sellingPrice' && initialSellingPrice === '') {
+            initialSellingPrice = fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '';
+          } else if ((fv.categoryField?.fieldKey === 'marginPercentage' || fv.categoryField?.fieldKey === 'margin') && initialMargin === '') {
+            initialMargin = fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '';
           }
         }
       }
       setFieldValues(initialMap);
       setPurchasePrice(initialPurchasePrice);
+      setPurchaseRatePerGram(initialPurchaseRatePerGram);
+      setPurchaseMakingChargesPerGram(initialPurchaseMakingChargesPerGram);
       setAdditionalCharges(initialAdditionalCharges);
       setActualPurchasePrice(initialActualPurchasePrice);
+
+      if (initialMargin === '' && initialSellingPrice !== '' && initialActualPurchasePrice !== '') {
+        const sp = typeof initialSellingPrice === 'number' ? initialSellingPrice : parseFloat(String(initialSellingPrice));
+        const cp = typeof initialActualPurchasePrice === 'number' ? initialActualPurchasePrice : parseFloat(String(initialActualPurchasePrice));
+        if (!isNaN(sp) && !isNaN(cp) && cp > 0) {
+          initialMargin = Math.round(((sp - cp) / cp) * 100 * 100) / 100;
+        }
+      }
+      setSellingPrice(initialSellingPrice);
+      setMargin(initialMargin);
+      setLastEditedPricingField(initialSellingPrice !== '' ? 'sellingPrice' : null);
 
       // Load category fields for this category
       void loadCategoryFields(editingProduct.categoryId, initialMap);
@@ -129,8 +273,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setProductName('');
       setStockQuantity('0');
       setPurchasePrice('');
+      setPurchaseRatePerGram('');
+      setPurchaseMakingChargesPerGram('');
       setAdditionalCharges('');
       setActualPurchasePrice('');
+      setSellingPrice('');
+      setMargin('');
+      setLastEditedPricingField(null);
+      setSelectedVendorId('');
+      setPurchaseDate(new Date().toISOString().split('T')[0]);
       // If there are categories, default to the first one
       if (categories.length > 0) {
         const firstCatId = categories[0].id;
@@ -143,6 +294,35 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       }
     }
   }, [isOpen, editingProduct, categories]);
+
+  const handleQuickAddVendor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = quickVendorName.trim();
+    if (!trimmed) {
+      showError('Vendor name is required.');
+      return;
+    }
+    setQuickVendorSubmitting(true);
+    try {
+      const res = await ipcClient.createVendor({
+        name: trimmed,
+        phoneNumber: quickVendorPhone.trim() || null,
+      });
+      if (res.success) {
+        setVendors((prev) => [...prev, res.data]);
+        setSelectedVendorId(res.data.id);
+        setIsQuickAddVendorOpen(false);
+        setQuickVendorName('');
+        setQuickVendorPhone('');
+      } else {
+        showError(res.error || 'Failed to add vendor.');
+      }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to add vendor.');
+    } finally {
+      setQuickVendorSubmitting(false);
+    }
+  };
 
   const loadCategoryFields = async (
     catId: string,
@@ -184,8 +364,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setSelectedCategoryId(newCatId);
     setFieldValues({});
     setPurchasePrice('');
+    setPurchaseRatePerGram('');
+    setPurchaseMakingChargesPerGram('');
     setAdditionalCharges('');
     setActualPurchasePrice('');
+    setSellingPrice('');
+    setMargin('');
+    setLastEditedPricingField(null);
     void loadCategoryFields(newCatId, {});
   };
 
@@ -199,9 +384,91 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     }));
   };
 
-  const isJewelleryCategory = categoryFields.some(
-    (f) => f.fieldKey === 'purity' || f.name.toLowerCase() === 'purity'
+  const hasPurityField =
+    categoryFields.some(
+      (f) => f.fieldKey === 'purity' || f.name.toLowerCase().includes('purity')
+    ) ||
+    Boolean(
+      editingProduct?.fieldValues?.some(
+        (fv) =>
+          fv.categoryField?.fieldKey === 'purity' ||
+          fv.categoryField?.name?.toLowerCase().includes('purity')
+      )
+    );
+
+  const isJewelleryCategory = hasPurityField;
+
+  const weightField = categoryFields.find(
+    (f) => f.fieldKey === 'weight' || f.name.toLowerCase().includes('weight')
   );
+  const currentWeightVal = weightField ? fieldValues[weightField.id]?.valueNumber : '';
+  const numericWeight =
+    typeof currentWeightVal === 'number'
+      ? currentWeightVal
+      : parseFloat(String(currentWeightVal || ''));
+
+  const calculateJewelleryActualPurchasePrice = (
+    wVal: string | number,
+    rpVal: string | number,
+    mpVal: string | number,
+    aVal: string | number
+  ) => {
+    const w = typeof wVal === 'number' ? wVal : parseFloat(String(wVal || ''));
+    const rp = typeof rpVal === 'number' ? rpVal : parseFloat(String(rpVal || ''));
+    const mp =
+      mpVal === '' || mpVal === null || mpVal === undefined
+        ? 0
+        : typeof mpVal === 'number'
+        ? mpVal
+        : parseFloat(String(mpVal));
+    const a =
+      aVal === '' || aVal === null || aVal === undefined
+        ? 0
+        : typeof aVal === 'number'
+        ? aVal
+        : parseFloat(String(aVal));
+
+    if (isNaN(w) || w <= 0 || isNaN(rp) || rp < 0) {
+      setActualPurchasePrice('');
+      setPurchasePrice('');
+      return;
+    }
+
+    const baseCost = w * rp;
+    const makingCost = isNaN(mp) || mp < 0 ? 0 : w * mp;
+    const addPercent = isNaN(a) || a < 0 ? 0 : a;
+    const addCostAmt = baseCost * (addPercent / 100);
+
+    const actual = Math.round((baseCost + makingCost + addCostAmt) * 100) / 100;
+    const totalBase = Math.round((baseCost + makingCost) * 100) / 100;
+
+    setActualPurchasePrice(actual);
+    setPurchasePrice(totalBase);
+  };
+
+  useEffect(() => {
+    if (!isJewelleryCategory) return;
+    calculateJewelleryActualPurchasePrice(
+      currentWeightVal ?? '',
+      purchaseRatePerGram,
+      purchaseMakingChargesPerGram,
+      additionalCharges
+    );
+  }, [
+    isJewelleryCategory,
+    currentWeightVal,
+    purchaseRatePerGram,
+    purchaseMakingChargesPerGram,
+    additionalCharges,
+  ]);
+
+  const handlePurchaseRatePerGramChange = (val: string) => {
+    setPurchaseRatePerGram(val);
+  };
+
+  const handlePurchaseMakingChargesPerGramChange = (val: string) => {
+    setPurchaseMakingChargesPerGram(val);
+  };
 
   // Live calculation effect for categories with Purity attribute
   useEffect(() => {
@@ -306,25 +573,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     // 4. Purchase Pricing validation
     let parsedPurchasePrice: number | null = null;
-    const pStr = String(purchasePrice ?? '').trim();
-    if (pStr !== '') {
-      const p = parseFloat(pStr);
-      if (isNaN(p)) {
-        showError('Purchase price must be a valid number.');
-        return;
-      }
-      if (p < 0) {
-        showError('Purchase price cannot be negative.');
-        return;
-      }
-      if (p > 100000000) {
-        showError('Purchase price cannot exceed ₹100,000,000.');
-        return;
-      }
-      parsedPurchasePrice = Math.round(p * 100) / 100;
-    }
-
+    let parsedPurchaseRatePerGram: number | null = null;
+    let parsedPurchaseMakingChargesPerGram: number | null = null;
     let parsedAdditionalCharges: number | null = null;
+    let parsedActualPurchasePrice: number | null = null;
+
     const cStr = String(additionalCharges ?? '').trim();
     if (cStr !== '') {
       const c = parseFloat(cStr);
@@ -343,20 +596,149 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       parsedAdditionalCharges = Math.round(c * 100) / 100;
     }
 
-    if (parsedAdditionalCharges !== null && parsedAdditionalCharges > 0 && parsedPurchasePrice === null) {
-      showError('Please enter a Purchase Price before applying Additional Cost (%).');
-      return;
+    if (isJewelleryCategory) {
+      const rpStr = String(purchaseRatePerGram ?? '').trim();
+      if (rpStr !== '') {
+        const rp = parseFloat(rpStr);
+        if (isNaN(rp)) {
+          showError('Purchase rate per gram must be a valid number.');
+          return;
+        }
+        if (rp < 0) {
+          showError('Purchase rate per gram cannot be negative.');
+          return;
+        }
+        if (rp > 1000000) {
+          showError('Purchase rate per gram cannot exceed ₹1,000,000.');
+          return;
+        }
+        parsedPurchaseRatePerGram = Math.round(rp * 100) / 100;
+      }
+
+      const mpStr = String(purchaseMakingChargesPerGram ?? '').trim();
+      if (mpStr !== '') {
+        const mp = parseFloat(mpStr);
+        if (isNaN(mp)) {
+          showError('Purchase making charges per gram must be a valid number.');
+          return;
+        }
+        if (mp < 0) {
+          showError('Purchase making charges per gram cannot be negative.');
+          return;
+        }
+        if (mp > 1000000) {
+          showError('Purchase making charges per gram cannot exceed ₹1,000,000.');
+          return;
+        }
+        parsedPurchaseMakingChargesPerGram = Math.round(mp * 100) / 100;
+      }
+
+      if (parsedPurchaseRatePerGram !== null) {
+        const w = numericWeight;
+        if (isNaN(w) || w <= 0) {
+          showError('Please enter a valid Weight (grams) greater than 0 before entering purchase rate.');
+          return;
+        }
+        const baseCost = Math.round(w * parsedPurchaseRatePerGram * 100) / 100;
+        const makingCost = parsedPurchaseMakingChargesPerGram !== null ? Math.round(w * parsedPurchaseMakingChargesPerGram * 100) / 100 : 0;
+        const baseTotal = Math.round((baseCost + makingCost) * 100) / 100;
+        const addCostAmt = parsedAdditionalCharges !== null ? Math.round(baseCost * (parsedAdditionalCharges / 100) * 100) / 100 : 0;
+        parsedPurchasePrice = baseTotal;
+        parsedActualPurchasePrice = Math.round((baseTotal + addCostAmt) * 100) / 100;
+      } else if (parsedAdditionalCharges !== null && parsedAdditionalCharges > 0) {
+        showError('Please enter a Purchase Rate (₹/gm) before applying Additional Cost (%).');
+        return;
+      }
+    } else {
+      const pStr = String(purchasePrice ?? '').trim();
+      if (pStr !== '') {
+        const p = parseFloat(pStr);
+        if (isNaN(p)) {
+          showError('Purchase price must be a valid number.');
+          return;
+        }
+        if (p < 0) {
+          showError('Purchase price cannot be negative.');
+          return;
+        }
+        if (p > 100000000) {
+          showError('Purchase price cannot exceed ₹100,000,000.');
+          return;
+        }
+        parsedPurchasePrice = Math.round(p * 100) / 100;
+      }
+
+      if (parsedAdditionalCharges !== null && parsedAdditionalCharges > 0 && parsedPurchasePrice === null) {
+        showError('Please enter a Purchase Price before applying Additional Cost (%).');
+        return;
+      }
+
+      if (parsedPurchasePrice !== null) {
+        const c = parsedAdditionalCharges ?? 0;
+        parsedActualPurchasePrice = Math.round((parsedPurchasePrice + (parsedPurchasePrice * c / 100)) * 100) / 100;
+      }
     }
 
-    let parsedActualPurchasePrice: number | null = null;
-    if (parsedPurchasePrice !== null) {
-      const c = parsedAdditionalCharges ?? 0;
-      parsedActualPurchasePrice = Math.round((parsedPurchasePrice + (parsedPurchasePrice * c / 100)) * 100) / 100;
+    // 5. Selling Price & Margin Validation (for non-jewellery)
+    let parsedSellingPrice: number | null = null;
+    let parsedMargin: number | null = null;
+
+    if (!isJewelleryCategory) {
+      const spStr = String(sellingPrice ?? '').trim();
+      const mStr = String(margin ?? '').trim();
+
+      if (spStr !== '') {
+        const sp = parseFloat(spStr);
+        if (isNaN(sp)) {
+          showError('Selling price must be a valid number.');
+          return;
+        }
+        if (sp < 0) {
+          showError('Selling price cannot be negative.');
+          return;
+        }
+        if (sp > 100000000) {
+          showError('Selling price cannot exceed ₹100,000,000.');
+          return;
+        }
+        parsedSellingPrice = Math.round(sp * 100) / 100;
+      }
+
+      if (mStr !== '') {
+        const m = parseFloat(mStr);
+        if (isNaN(m)) {
+          showError('Margin percentage must be a valid number.');
+          return;
+        }
+        parsedMargin = Math.round(m * 100) / 100;
+      }
+
+      // If user filled margin but selling price was not calculated
+      if (parsedSellingPrice === null && parsedMargin !== null && parsedActualPurchasePrice !== null && parsedActualPurchasePrice > 0) {
+        parsedSellingPrice = Math.round((parsedActualPurchasePrice + (parsedActualPurchasePrice * parsedMargin / 100)) * 100) / 100;
+      }
+
+      // If user filled selling price but margin was not calculated
+      if (parsedMargin === null && parsedSellingPrice !== null && parsedActualPurchasePrice !== null && parsedActualPurchasePrice > 0) {
+        parsedMargin = Math.round(((parsedSellingPrice - parsedActualPurchasePrice) / parsedActualPurchasePrice) * 100 * 100) / 100;
+      }
     }
 
-    // 5. Dynamic Category Fields validation
+    // 6. Dynamic Category Fields validation
+    const INTERNAL_PRICING_KEYS = [
+      'purchasePrice',
+      'purchaseRatePerGram',
+      'purchaseMakingChargesPerGram',
+      'additionalChargesPercentage',
+      'actualPurchasePrice',
+      'actualPurchasePriceCode',
+      'sellingPrice',
+      'marginPercentage',
+      'margin',
+    ];
+
     const activeCategoryFields = categoryFields.filter(
-      (f) => !['purchasePrice', 'additionalChargesPercentage', 'actualPurchasePrice', 'actualPurchasePriceCode'].includes(f.fieldKey)
+      (f) => !INTERNAL_PRICING_KEYS.includes(f.fieldKey)
     );
 
     for (const f of activeCategoryFields) {
@@ -447,7 +829,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       }
     }
 
-    // 6. Jewellery Specific Validation
+    // 7. Jewellery Specific Validation
     if (isJewelleryCategory) {
       const purityField = categoryFields.find((f) => f.fieldKey === 'purity' || f.name.toLowerCase().includes('purity'));
       if (purityField) {
@@ -471,6 +853,22 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     // Format field values for IPC
     const fieldValuesPayload: ProductFieldValueInput[] = categoryFields.map((f) => {
+      if (f.fieldKey === 'purchaseRatePerGram') {
+        return {
+          categoryFieldId: f.id,
+          valueText: null,
+          valueNumber: parsedPurchaseRatePerGram,
+          valueBoolean: null,
+        };
+      }
+      if (f.fieldKey === 'purchaseMakingChargesPerGram') {
+        return {
+          categoryFieldId: f.id,
+          valueText: null,
+          valueNumber: parsedPurchaseMakingChargesPerGram,
+          valueBoolean: null,
+        };
+      }
       if (f.fieldKey === 'purchasePrice') {
         return {
           categoryFieldId: f.id,
@@ -503,6 +901,22 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           valueBoolean: null,
         };
       }
+      if (f.fieldKey === 'sellingPrice') {
+        return {
+          categoryFieldId: f.id,
+          valueText: null,
+          valueNumber: parsedSellingPrice,
+          valueBoolean: null,
+        };
+      }
+      if (f.fieldKey === 'marginPercentage' || f.fieldKey === 'margin') {
+        return {
+          categoryFieldId: f.id,
+          valueText: null,
+          valueNumber: parsedMargin,
+          valueBoolean: null,
+        };
+      }
 
       const val = fieldValues[f.id];
       let valueNumber: number | null = null;
@@ -528,9 +942,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           stockQuantity: parsedStock,
           fieldValues: fieldValuesPayload,
           purchasePrice: parsedPurchasePrice,
+          purchaseRatePerGram: parsedPurchaseRatePerGram,
+          purchaseMakingChargesPerGram: parsedPurchaseMakingChargesPerGram,
           additionalChargesPercentage: parsedAdditionalCharges,
           actualPurchasePrice: parsedActualPurchasePrice,
           actualPurchasePriceCode: generateActualPurchasePriceCode(parsedActualPurchasePrice),
+          sellingPrice: parsedSellingPrice,
+          marginPercentage: parsedMargin,
+          vendorId: selectedVendorId || null,
+          purchaseDate: selectedVendorId ? purchaseDate : null,
         });
 
         if (res.success) {
@@ -546,9 +966,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           stockQuantity: parsedStock,
           fieldValues: fieldValuesPayload,
           purchasePrice: parsedPurchasePrice,
+          purchaseRatePerGram: parsedPurchaseRatePerGram,
+          purchaseMakingChargesPerGram: parsedPurchaseMakingChargesPerGram,
           additionalChargesPercentage: parsedAdditionalCharges,
           actualPurchasePrice: parsedActualPurchasePrice,
           actualPurchasePriceCode: generateActualPurchasePriceCode(parsedActualPurchasePrice),
+          sellingPrice: parsedSellingPrice,
+          marginPercentage: parsedMargin,
+          vendorId: selectedVendorId || null,
+          purchaseDate: selectedVendorId ? purchaseDate : null,
         });
 
         if (res.success) {
@@ -564,6 +990,45 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setSaving(false);
     }
   };
+
+  const jewelleryCostBreakdown =
+    isJewelleryCategory &&
+    numericWeight > 0 &&
+    purchaseRatePerGram !== '' &&
+    !isNaN(Number(purchaseRatePerGram))
+      ? (() => {
+          const w = numericWeight;
+          const rp = Number(purchaseRatePerGram);
+          const mp =
+            purchaseMakingChargesPerGram !== '' &&
+            !isNaN(Number(purchaseMakingChargesPerGram))
+              ? Number(purchaseMakingChargesPerGram)
+              : 0;
+          const a =
+            additionalCharges !== '' && !isNaN(Number(additionalCharges))
+              ? Number(additionalCharges)
+              : 0;
+          const baseMetalCost = Math.round(w * rp * 100) / 100;
+          const supplierMakingCost = Math.round(w * mp * 100) / 100;
+          const basePurchasePrice =
+            Math.round((baseMetalCost + supplierMakingCost) * 100) / 100;
+          const additionalCostAmount =
+            Math.round(baseMetalCost * (a / 100) * 100) / 100;
+          const actualPrice =
+            Math.round((basePurchasePrice + additionalCostAmount) * 100) / 100;
+          return {
+            weight: w,
+            purchaseRatePerGram: rp,
+            purchaseMakingChargesPerGram: mp,
+            additionalChargesPct: a,
+            baseMetalCost,
+            supplierMakingCost,
+            basePurchasePrice,
+            additionalCostAmount,
+            actualPrice,
+          };
+        })()
+      : null;
 
   if (!isOpen) return null;
 
@@ -703,15 +1168,125 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               </div>
             </div>
 
+            {/* Vendor & Purchase Details Section */}
+            <div className="rounded-xl border border-cream-200 bg-cream-50/50 p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-stone-600">
+                    Vendor & Purchase Details
+                  </h3>
+                  <p className="text-[11px] text-stone-500">
+                    Select the vendor from whom this product was purchased and the purchase date.
+                  </p>
+                </div>
+                {!isQuickAddVendorOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickAddVendorOpen(true)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 hover:text-amber-800 transition"
+                  >
+                    <span>+ Quick Add Vendor</span>
+                  </button>
+                )}
+              </div>
+
+              {isQuickAddVendorOpen && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50/60 p-3 space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-900">Add New Vendor</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickAddVendorOpen(false)}
+                      className="text-[11px] text-stone-500 hover:text-stone-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input
+                      type="text"
+                      value={quickVendorName}
+                      onChange={(e) => setQuickVendorName(e.target.value)}
+                      placeholder="Vendor Name *"
+                      className="w-full rounded-lg border border-cream-300 bg-white px-3 py-1.5 text-xs text-stone-900 focus:border-amber-600 focus:outline-none"
+                    />
+                    <input
+                      type="tel"
+                      value={quickVendorPhone}
+                      onChange={(e) => setQuickVendorPhone(e.target.value)}
+                      placeholder="Phone Number (Optional)"
+                      className="w-full rounded-lg border border-cream-300 bg-white px-3 py-1.5 text-xs text-stone-900 focus:border-amber-600 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleQuickAddVendor}
+                      disabled={quickVendorSubmitting || !quickVendorName.trim()}
+                      className="inline-flex items-center gap-1 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1 text-xs font-bold text-white transition disabled:opacity-50"
+                    >
+                      {quickVendorSubmitting ? 'Adding...' : 'Save & Select Vendor'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {/* Vendor Dropdown */}
+                <div>
+                  <label htmlFor="product-vendor-select" className="block text-xs font-medium text-stone-700">
+                    Vendor / Supplier <span className="text-stone-400 font-normal">(Optional)</span>
+                  </label>
+                  <select
+                    id="product-vendor-select"
+                    value={selectedVendorId}
+                    onChange={(e) => setSelectedVendorId(e.target.value)}
+                    disabled={saving}
+                    className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                  >
+                    <option value="">-- No Vendor Selected --</option>
+                    {vendors.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} {v.phoneNumber ? `(${v.phoneNumber})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[10px] text-stone-500">
+                    Who did you purchase this item from?
+                  </p>
+                </div>
+
+                {/* Purchase Date */}
+                <div>
+                  <label htmlFor="product-purchase-date-input" className="block text-xs font-medium text-stone-700">
+                    Purchase Date <span className="text-stone-400 font-normal">(When purchased)</span>
+                  </label>
+                  <input
+                    id="product-purchase-date-input"
+                    type="date"
+                    value={purchaseDate}
+                    onChange={(e) => setPurchaseDate(e.target.value)}
+                    disabled={saving}
+                    className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                  />
+                  <p className="mt-1 text-[10px] text-stone-500">
+                    Date of purchase entry
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Purchase Pricing Section */}
             <div className="rounded-xl border border-cream-200 bg-cream-50/50 p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-stone-600">
-                    Purchase Pricing
+                    Purchase Pricing {isJewelleryCategory ? '(Gold / Silver Jewellery)' : ''}
                   </h3>
                   <p className="text-[11px] text-stone-500">
-                    Set purchase cost and additional charges applied on this product.
+                    {isJewelleryCategory
+                      ? 'Inward purchase rates per gram, supplier making charges, and overhead percentage.'
+                      : 'Set purchase cost and additional charges applied on this product.'}
                   </p>
                 </div>
                 <span className="rounded bg-amber-100/70 border border-amber-300 px-2 py-0.5 text-[10px] font-semibold text-amber-900 font-mono">
@@ -719,149 +1294,484 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {/* Purchase Price Input */}
-                <div>
-                  <label htmlFor="product-purchase-price-input" className="block text-xs font-medium text-stone-700">
-                    Purchase Price (₹)
-                  </label>
-                  <div className="relative mt-1.5">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-stone-400">
-                      ₹
-                    </span>
-                    <input
-                      id="product-purchase-price-input"
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={purchasePrice}
-                      onChange={(e) => handlePurchasePriceChange(e.target.value)}
-                      placeholder="e.g. 100"
-                      disabled={saving}
-                      className="w-full rounded-lg border border-cream-300 bg-white pl-7 pr-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
-                    />
-                  </div>
-                  <p className="mt-1 text-[10px] text-stone-500">
-                    Base price at purchase
-                  </p>
-                </div>
+              {isJewelleryCategory ? (
+                /* Jewellery Inward Purchase Pricing (Rate/g, Supplier Making/g, Additional Cost %, Actual Cost, Price Code) */
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                    {/* Purchase Rate per Gram (Rp) */}
+                    <div>
+                      <label htmlFor="product-purchase-rate-input" className="block text-xs font-medium text-stone-700">
+                        Purchase Rate (₹/g)
+                      </label>
+                      <div className="relative mt-1.5">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-stone-400">
+                          ₹
+                        </span>
+                        <input
+                          id="product-purchase-rate-input"
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={purchaseRatePerGram}
+                          onChange={(e) => handlePurchaseRatePerGramChange(e.target.value)}
+                          placeholder="e.g. 6500"
+                          disabled={saving}
+                          className="w-full rounded-lg border border-cream-300 bg-white pl-7 pr-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        Buying metal rate / gm
+                      </p>
+                    </div>
 
-                {/* Additional Charges (%) Input */}
-                <div>
-                  <label htmlFor="product-additional-charges-input" className="block text-xs font-medium text-stone-700">
-                    Additional Cost (%)
-                  </label>
-                  <div className="relative mt-1.5">
-                    <input
-                      id="product-additional-charges-input"
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={additionalCharges}
-                      onChange={(e) => handleAdditionalChargesChange(e.target.value)}
-                      placeholder="e.g. 10"
-                      disabled={saving}
-                      className="w-full rounded-lg border border-cream-300 bg-white pr-7 pl-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
-                    />
-                    <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-bold text-stone-400">
-                      %
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[10px] text-stone-500">
-                    % on purchase price
-                  </p>
-                </div>
+                    {/* Purchase Making Charges per Gram (Mp) */}
+                    <div>
+                      <label htmlFor="product-purchase-making-input" className="block text-xs font-medium text-stone-700">
+                        Supplier Making (₹/g)
+                      </label>
+                      <div className="relative mt-1.5">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-stone-400">
+                          ₹
+                        </span>
+                        <input
+                          id="product-purchase-making-input"
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={purchaseMakingChargesPerGram}
+                          onChange={(e) => handlePurchaseMakingChargesPerGramChange(e.target.value)}
+                          placeholder="e.g. 450"
+                          disabled={saving}
+                          className="w-full rounded-lg border border-cream-300 bg-white pl-7 pr-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        Supplier charge / gm
+                      </p>
+                    </div>
 
-                {/* Actual Purchase Price (Read-Only / Automatically Calculated) */}
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label htmlFor="product-actual-purchase-price" className="block text-xs font-medium text-stone-700">
-                      Actual Purchase Price
-                    </label>
-                    <span className="text-[10px] text-amber-700 font-semibold font-mono">
-                      Calculated
-                    </span>
-                  </div>
-                  <div className="relative mt-1.5">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-amber-700">
-                      ₹
-                    </span>
-                    <input
-                      id="product-actual-purchase-price"
-                      type="text"
-                      readOnly
-                      disabled
-                      value={
-                        actualPurchasePrice !== null && actualPurchasePrice !== undefined && actualPurchasePrice !== ''
-                          ? Number(actualPurchasePrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                          : '—'
-                      }
-                      className="w-full rounded-lg border border-amber-300 bg-amber-50/70 pl-7 pr-3.5 py-2 text-xs font-bold font-mono text-amber-950 cursor-not-allowed select-text shadow-xs"
-                    />
-                  </div>
-                  <p className="mt-1 text-[10px] text-stone-500">
-                    Price + Charges
-                  </p>
-                </div>
+                    {/* Additional Cost (%) */}
+                    <div>
+                      <label htmlFor="product-additional-charges-input" className="block text-xs font-medium text-stone-700">
+                        Additional Cost (%)
+                      </label>
+                      <div className="relative mt-1.5">
+                        <input
+                          id="product-additional-charges-input"
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={additionalCharges}
+                          onChange={(e) => handleAdditionalChargesChange(e.target.value)}
+                          placeholder="e.g. 5"
+                          disabled={saving}
+                          className="w-full rounded-lg border border-cream-300 bg-white pr-7 pl-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
+                        />
+                        <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-bold text-stone-400">
+                          %
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        % on metal cost
+                      </p>
+                    </div>
 
-                {/* Actual Purchase Price Code (COMPLISENT Mapping) */}
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label htmlFor="product-actual-purchase-price-code" className="block text-xs font-medium text-stone-700">
-                      Purchase Price Code
-                    </label>
-                    <span className="text-[10px] text-amber-700 font-semibold font-mono" title="COMPLISENT (1=C 2=O 3=M 4=P 5=L 6=I 7=S 8=E 9=N 0=T)">
-                      COMPLISENT
-                    </span>
-                  </div>
-                  <div className="relative mt-1.5">
-                    <input
-                      id="product-actual-purchase-price-code"
-                      type="text"
-                      readOnly
-                      disabled
-                      value={actualPurchasePriceCode || '—'}
-                      placeholder="e.g. TTTCTT"
-                      className="w-full rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2 text-xs font-bold font-mono tracking-widest text-amber-950 cursor-not-allowed select-text shadow-xs text-center"
-                    />
-                  </div>
-                  <p className="mt-1 text-[10px] text-stone-500">
-                    Secret 6-char tag code
-                  </p>
-                </div>
-              </div>
+                    {/* Actual Purchase Price */}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="product-actual-purchase-price" className="block text-xs font-medium text-stone-700">
+                          Actual Cost
+                        </label>
+                        <span className="text-[10px] text-amber-700 font-semibold font-mono">
+                          Auto
+                        </span>
+                      </div>
+                      <div className="relative mt-1.5">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-amber-700">
+                          ₹
+                        </span>
+                        <input
+                          id="product-actual-purchase-price"
+                          type="text"
+                          readOnly
+                          disabled
+                          value={
+                            actualPurchasePrice !== null && actualPurchasePrice !== undefined && actualPurchasePrice !== ''
+                              ? Number(actualPurchasePrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                              : '—'
+                          }
+                          className="w-full rounded-lg border border-amber-300 bg-amber-50/70 pl-7 pr-3.5 py-2 text-xs font-bold font-mono text-amber-950 cursor-not-allowed select-text shadow-xs"
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        Total landed cost
+                      </p>
+                    </div>
 
-              {/* Real-time Calculation Breakdown Pill */}
-              {purchasePrice !== '' && !isNaN(Number(purchasePrice)) && Number(purchasePrice) >= 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-100/50 border border-amber-200/80 px-3.5 py-2 text-xs">
-                  <div className="flex items-center gap-2 text-amber-900 font-medium">
-                    <span className="text-amber-700 font-bold">Calculation:</span>
-                    <span className="font-mono">
-                      ₹{Number(purchasePrice).toLocaleString()} + {additionalCharges !== '' ? `${additionalCharges}%` : '0%'}
-                      {' '}
-                      (₹{(Number(purchasePrice) * (Number(additionalCharges || 0) / 100)).toFixed(2)})
-                      {' = '}
-                      <strong className="font-bold text-amber-950">
-                        ₹{Number(actualPurchasePrice || purchasePrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </strong>
-                    </span>
+                    {/* Tag Code */}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="product-actual-purchase-price-code" className="block text-xs font-medium text-stone-700">
+                          Price Code
+                        </label>
+                        <span className="text-[10px] text-amber-700 font-semibold font-mono" title="COMPLISENT (1=C 2=O 3=M 4=P 5=L 6=I 7=S 8=E 9=N 0=T)">
+                          COMPLISENT
+                        </span>
+                      </div>
+                      <div className="relative mt-1.5">
+                        <input
+                          id="product-actual-purchase-price-code"
+                          type="text"
+                          readOnly
+                          disabled
+                          value={actualPurchasePriceCode || '—'}
+                          placeholder="e.g. TTTCTT"
+                          className="w-full rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2 text-xs font-bold font-mono tracking-widest text-amber-950 cursor-not-allowed select-text shadow-xs text-center"
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        Barcode tag code
+                      </p>
+                    </div>
                   </div>
-                  {actualPurchasePriceCode && (
-                    <div className="flex items-center gap-1.5 font-mono text-xs">
-                      <span className="text-stone-500 font-sans text-[11px]">Barcode Tag Code:</span>
-                      <span className="rounded bg-amber-200/90 px-2 py-0.5 font-bold tracking-widest text-amber-950 border border-amber-300/80">
-                        {actualPurchasePriceCode}
-                      </span>
+
+                  {/* Real-time Jewellery Inward Detailed Formula Breakdown Card */}
+                  {jewelleryCostBreakdown ? (
+                    <div className="rounded-xl border border-amber-200/90 bg-amber-50/70 p-3.5 space-y-2 text-xs">
+                      <div className="flex items-center justify-between border-b border-amber-200/70 pb-2">
+                        <div className="flex items-center gap-2 text-amber-900 font-bold">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-200/80 text-amber-900 text-[11px]">
+                            ✓
+                          </span>
+                          <span>Jewellery Landed Cost Breakdown</span>
+                        </div>
+                        <span className="font-mono text-[11px] text-stone-600">
+                          Weight: <strong>{jewelleryCostBreakdown.weight}g</strong>
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-[11px]">
+                        <div className="rounded-lg bg-white/80 p-2 border border-amber-200/60 shadow-xs">
+                          <span className="text-[10px] text-stone-500 block font-sans">Base Metal ({jewelleryCostBreakdown.weight}g × ₹{jewelleryCostBreakdown.purchaseRatePerGram})</span>
+                          <span className="font-bold text-amber-950 text-xs">
+                            ₹{jewelleryCostBreakdown.baseMetalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="rounded-lg bg-white/80 p-2 border border-amber-200/60 shadow-xs">
+                          <span className="text-[10px] text-stone-500 block font-sans">Supplier Making ({jewelleryCostBreakdown.weight}g × ₹{jewelleryCostBreakdown.purchaseMakingChargesPerGram})</span>
+                          <span className="font-bold text-amber-950 text-xs">
+                            ₹{jewelleryCostBreakdown.supplierMakingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="rounded-lg bg-white/80 p-2 border border-amber-200/60 shadow-xs">
+                          <span className="text-[10px] text-stone-500 block font-sans">Additional Cost ({jewelleryCostBreakdown.additionalChargesPct}% of metal)</span>
+                          <span className="font-bold text-amber-950 text-xs">
+                            +₹{jewelleryCostBreakdown.additionalCostAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="rounded-lg bg-amber-100/90 p-2 border border-amber-300 shadow-xs">
+                          <span className="text-[10px] text-amber-800 block font-sans font-semibold">Actual Purchase Price</span>
+                          <span className="font-bold text-amber-950 text-sm">
+                            ₹{jewelleryCostBreakdown.actualPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {actualPurchasePriceCode && (
+                        <div className="flex items-center justify-between pt-1 border-t border-amber-200/60 text-[11px]">
+                          <span className="text-stone-600">Encoded Barcode Price Tag:</span>
+                          <span className="rounded bg-amber-200/90 px-2.5 py-0.5 font-bold font-mono tracking-widest text-amber-950 border border-amber-300">
+                            {actualPurchasePriceCode}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-amber-300/80 bg-amber-50/40 p-2.5 text-center text-[11px] text-amber-800">
+                      Enter <strong>Weight</strong> (in Category Attributes below) and <strong>Purchase Rate (₹/g)</strong> to calculate landed cost & barcode price code.
                     </div>
                   )}
+
+                  <div className="pt-2 border-t border-amber-200/50">
+                    <div className="flex items-center gap-2 rounded-lg bg-amber-100/60 border border-amber-200/80 px-3.5 py-2 text-xs text-amber-900">
+                      <span className="font-bold">Gold / Silver Jewellery:</span>
+                      <span className="text-[11px]">
+                        Customer selling price is dynamically calculated at POS checkout using daily metal market rates and retail making charges. Selling price and margin inputs are not required during inward.
+                      </span>
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                /* Non-Jewellery Standard Purchase Pricing (100% Unchanged) */
+                <>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    {/* Purchase Price Input */}
+                    <div>
+                      <label htmlFor="product-purchase-price-input" className="block text-xs font-medium text-stone-700">
+                        Purchase Price (₹)
+                      </label>
+                      <div className="relative mt-1.5">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-stone-400">
+                          ₹
+                        </span>
+                        <input
+                          id="product-purchase-price-input"
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={purchasePrice}
+                          onChange={(e) => handlePurchasePriceChange(e.target.value)}
+                          placeholder="e.g. 100"
+                          disabled={saving}
+                          className="w-full rounded-lg border border-cream-300 bg-white pl-7 pr-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        Base price at purchase
+                      </p>
+                    </div>
+
+                    {/* Additional Charges (%) Input */}
+                    <div>
+                      <label htmlFor="product-additional-charges-input" className="block text-xs font-medium text-stone-700">
+                        Additional Cost (%)
+                      </label>
+                      <div className="relative mt-1.5">
+                        <input
+                          id="product-additional-charges-input"
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={additionalCharges}
+                          onChange={(e) => handleAdditionalChargesChange(e.target.value)}
+                          placeholder="e.g. 10"
+                          disabled={saving}
+                          className="w-full rounded-lg border border-cream-300 bg-white pr-7 pl-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
+                        />
+                        <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-bold text-stone-400">
+                          %
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        % on purchase price
+                      </p>
+                    </div>
+
+                    {/* Actual Purchase Price (Read-Only / Automatically Calculated) */}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="product-actual-purchase-price" className="block text-xs font-medium text-stone-700">
+                          Actual Purchase Price
+                        </label>
+                        <span className="text-[10px] text-amber-700 font-semibold font-mono">
+                          Calculated
+                        </span>
+                      </div>
+                      <div className="relative mt-1.5">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-amber-700">
+                          ₹
+                        </span>
+                        <input
+                          id="product-actual-purchase-price"
+                          type="text"
+                          readOnly
+                          disabled
+                          value={
+                            actualPurchasePrice !== null && actualPurchasePrice !== undefined && actualPurchasePrice !== ''
+                              ? Number(actualPurchasePrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                              : '—'
+                          }
+                          className="w-full rounded-lg border border-amber-300 bg-amber-50/70 pl-7 pr-3.5 py-2 text-xs font-bold font-mono text-amber-950 cursor-not-allowed select-text shadow-xs"
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        Price + Charges
+                      </p>
+                    </div>
+
+                    {/* Actual Purchase Price Code (COMPLISENT Mapping) */}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="product-actual-purchase-price-code" className="block text-xs font-medium text-stone-700">
+                          Purchase Price Code
+                        </label>
+                        <span className="text-[10px] text-amber-700 font-semibold font-mono" title="COMPLISENT (1=C 2=O 3=M 4=P 5=L 6=I 7=S 8=E 9=N 0=T)">
+                          COMPLISENT
+                        </span>
+                      </div>
+                      <div className="relative mt-1.5">
+                        <input
+                          id="product-actual-purchase-price-code"
+                          type="text"
+                          readOnly
+                          disabled
+                          value={actualPurchasePriceCode || '—'}
+                          placeholder="e.g. TTTCTT"
+                          className="w-full rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2 text-xs font-bold font-mono tracking-widest text-amber-950 cursor-not-allowed select-text shadow-xs text-center"
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        Secret 6-char tag code
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Real-time Calculation Breakdown Pill */}
+                  {purchasePrice !== '' && !isNaN(Number(purchasePrice)) && Number(purchasePrice) >= 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-100/50 border border-amber-200/80 px-3.5 py-2 text-xs">
+                      <div className="flex items-center gap-2 text-amber-900 font-medium">
+                        <span className="text-amber-700 font-bold">Calculation:</span>
+                        <span className="font-mono">
+                          ₹{Number(purchasePrice).toLocaleString()} + {additionalCharges !== '' ? `${additionalCharges}%` : '0%'}
+                          {' '}
+                          (₹{(Number(purchasePrice) * (Number(additionalCharges || 0) / 100)).toFixed(2)})
+                          {' = '}
+                          <strong className="font-bold text-amber-950">
+                            ₹{Number(actualPurchasePrice || purchasePrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </strong>
+                        </span>
+                      </div>
+                      {actualPurchasePriceCode && (
+                        <div className="flex items-center gap-1.5 font-mono text-xs">
+                          <span className="text-stone-500 font-sans text-[11px]">Barcode Tag Code:</span>
+                          <span className="rounded bg-amber-200/90 px-2 py-0.5 font-bold tracking-widest text-amber-950 border border-amber-300/80">
+                            {actualPurchasePriceCode}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Selling Price & Margin (Non-Jewellery only) */}
+                  <div className="pt-3 border-t border-amber-200/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded bg-amber-100 text-amber-900 font-bold text-xs">
+                          ₹
+                        </span>
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-stone-700">
+                          Selling Price & Profit Margin
+                        </h4>
+                      </div>
+                      <span className="text-[10px] text-stone-500 font-medium">
+                        Fill either Selling Price or Margin % — the other calculates automatically
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {/* Selling Price Input */}
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="product-selling-price-input" className="block text-xs font-medium text-stone-700">
+                            Selling Price (₹)
+                          </label>
+                          {lastEditedPricingField === 'margin' && sellingPrice !== '' && (
+                            <span className="text-[10px] text-emerald-700 font-semibold font-mono">
+                              Auto from Margin
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative mt-1.5">
+                          <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-stone-400">
+                            ₹
+                          </span>
+                          <input
+                            id="product-selling-price-input"
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={sellingPrice}
+                            onChange={(e) => handleSellingPriceChange(e.target.value)}
+                            placeholder="e.g. 250"
+                            disabled={saving}
+                            className="w-full rounded-lg border border-cream-300 bg-white pl-7 pr-3.5 py-2 text-xs font-bold font-mono text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                          />
+                        </div>
+                        <p className="mt-1 text-[10px] text-stone-500">
+                          Customer retail price
+                        </p>
+                      </div>
+
+                      {/* Margin (%) Input */}
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="product-margin-input" className="block text-xs font-medium text-stone-700">
+                            Profit Margin (%)
+                          </label>
+                          {lastEditedPricingField === 'sellingPrice' && margin !== '' && (
+                            <span className="text-[10px] text-emerald-700 font-semibold font-mono">
+                              Auto from Selling Price
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative mt-1.5">
+                          <input
+                            id="product-margin-input"
+                            type="number"
+                            step="any"
+                            value={margin}
+                            onChange={(e) => handleMarginChange(e.target.value)}
+                            placeholder="e.g. 25"
+                            disabled={saving}
+                            className="w-full rounded-lg border border-cream-300 bg-white pr-7 pl-3.5 py-2 text-xs font-bold font-mono text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                          />
+                          <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-bold text-stone-400">
+                            %
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[10px] text-stone-500">
+                          Margin on actual purchase price
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Real-time Profit & Margin Breakdown Pill */}
+                    {sellingPrice !== '' && actualPurchasePrice !== '' && !isNaN(Number(sellingPrice)) && !isNaN(Number(actualPurchasePrice)) && Number(actualPurchasePrice) > 0 && (
+                      <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-3.5 py-2 text-xs border ${
+                        Number(sellingPrice) >= Number(actualPurchasePrice)
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                          : 'bg-rose-50 border-rose-200 text-rose-900'
+                      }`}>
+                        <div className="flex items-center gap-2 font-medium">
+                          <span className="font-bold">
+                            {Number(sellingPrice) >= Number(actualPurchasePrice) ? 'Profit Analysis:' : 'Below Cost Price:'}
+                          </span>
+                          <span className="font-mono">
+                            Selling ₹{Number(sellingPrice).toLocaleString()} - Cost ₹{Number(actualPurchasePrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} =
+                            {' '}
+                            <strong className={`font-bold ${Number(sellingPrice) >= Number(actualPurchasePrice) ? 'text-emerald-950' : 'text-rose-950'}`}>
+                              ₹{(Number(sellingPrice) - Number(actualPurchasePrice)).toFixed(2)}
+                            </strong>
+                            {' '}
+                            ({Number(margin) >= 0 ? `+${Number(margin).toFixed(2)}%` : `${Number(margin).toFixed(2)}%`} margin)
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
 
             {/* Dynamic Category Fields Section */}
             {(() => {
+              const INTERNAL_PRICING_KEYS = [
+                'purchasePrice',
+                'purchaseRatePerGram',
+                'purchaseMakingChargesPerGram',
+                'additionalChargesPercentage',
+                'actualPurchasePrice',
+                'actualPurchasePriceCode',
+                'sellingPrice',
+                'marginPercentage',
+                'margin',
+              ];
+
               const displayCategoryFields = categoryFields.filter(
-                (f) => !['purchasePrice', 'additionalChargesPercentage', 'actualPurchasePrice', 'actualPurchasePriceCode'].includes(f.fieldKey)
+                (f) => !INTERNAL_PRICING_KEYS.includes(f.fieldKey)
               );
 
               return (
@@ -893,12 +1803,22 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       {displayCategoryFields.map((field) => {
                         const currentVal = fieldValues[field.id] || {};
+                        const isRetailMakingField =
+                          isJewelleryCategory &&
+                          (field.fieldKey === 'makingChargesPerGram' ||
+                            field.name.toLowerCase().includes('making charge'));
 
                         return (
                           <div key={field.id} className="space-y-1.5">
                             <div className="flex items-center justify-between">
                               <label htmlFor={`field-${field.id}`} className="block text-xs font-medium text-stone-700">
-                                {field.name} {field.required && <span className="text-rose-500">*</span>}
+                                {field.name}
+                                {isRetailMakingField && (
+                                  <span className="text-amber-700 font-normal ml-1">
+                                    (Selling / Retail to Customer)
+                                  </span>
+                                )}
+                                {field.required && <span className="text-rose-500 ml-0.5">*</span>}
                               </label>
                             </div>
 
@@ -918,17 +1838,24 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                             {/* Number Field (supports decimals like 50.5, 5.25) */}
                             {field.fieldType === 'number' && (
-                              <input
-                                id={`field-${field.id}`}
-                                type="number"
-                                step="any"
-                                required={field.required}
-                                value={currentVal.valueNumber !== undefined ? currentVal.valueNumber : ''}
-                                onChange={(e) => handleFieldChange(field.id, { valueNumber: e.target.value })}
-                                placeholder={`Enter ${field.name.toLowerCase()} (e.g. 10, 50.5)`}
-                                disabled={saving}
-                                className="w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                              />
+                              <>
+                                <input
+                                  id={`field-${field.id}`}
+                                  type="number"
+                                  step="any"
+                                  required={field.required}
+                                  value={currentVal.valueNumber !== undefined ? currentVal.valueNumber : ''}
+                                  onChange={(e) => handleFieldChange(field.id, { valueNumber: e.target.value })}
+                                  placeholder={`Enter ${field.name.toLowerCase()} (e.g. 10, 50.5)`}
+                                  disabled={saving}
+                                  className="w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
+                                />
+                                {isRetailMakingField && (
+                                  <p className="text-[10px] text-stone-500">
+                                    Retail making charge per gram applied during POS billing / checkout
+                                  </p>
+                                )}
+                              </>
                             )}
 
                             {/* Select Field */}

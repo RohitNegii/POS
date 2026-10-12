@@ -36,6 +36,13 @@ const FIXED_ADMINS = [
     passwordPlain: 'Admin@123',
     role: 'COMPANY_ADMIN',
   },
+  {
+    companyCode: 'COMPANY_A',
+    name: 'Billing Cashier',
+    email: 'billing@example.com',
+    passwordPlain: 'Billing@123',
+    role: 'BILLING_USER',
+  },
 ];
 
 /**
@@ -452,8 +459,214 @@ async function seed(prismaClient) {
       }
     }
 
+    // 5. Seed Sample Products if none exist
+    const prodCount = await prisma.product.count();
+    if (prodCount === 0) {
+      const compA = await prisma.company.findUnique({ where: { code: 'COMPANY_A' } });
+      const compB = await prisma.company.findUnique({ where: { code: 'COMPANY_B' } });
+      if (compA && compB) {
+        const catGoldA = await prisma.category.findFirst({
+          where: { companyId: compA.id, name: 'Gold / Silver Jewellery' },
+          include: { fields: true },
+        });
+        if (catGoldA) {
+          const ring = await prisma.product.create({
+            data: {
+              companyId: compA.id,
+              categoryId: catGoldA.id,
+              name: '22K Gold Bridal Ring',
+              barcode: 'AGJ000001',
+              stockQuantity: 15,
+            },
+          });
+          for (const f of catGoldA.fields) {
+            if (f.fieldKey === 'purity') {
+              await prisma.productFieldValue.create({
+                data: { productId: ring.id, categoryFieldId: f.id, valueText: '22K (916)' },
+              });
+            } else if (f.fieldKey === 'weight') {
+              await prisma.productFieldValue.create({
+                data: { productId: ring.id, categoryFieldId: f.id, valueNumber: 4.5 },
+              });
+            } else if (f.fieldKey === 'makingChargesPerGram') {
+              await prisma.productFieldValue.create({
+                data: { productId: ring.id, categoryFieldId: f.id, valueNumber: 500 },
+              });
+            }
+          }
+        }
+
+        const catGSA = await prisma.category.findFirst({
+          where: { companyId: compA.id, name: 'German Silver / German Metal' },
+          include: { fields: true },
+        });
+        if (catGSA) {
+          const bowl = await prisma.product.create({
+            data: {
+              companyId: compA.id,
+              categoryId: catGSA.id,
+              name: 'German Silver Antique Bowl',
+              barcode: 'AGS000002',
+              stockQuantity: 30,
+            },
+          });
+          for (const f of catGSA.fields) {
+            if (f.fieldKey === 'sellingPrice') {
+              await prisma.productFieldValue.create({
+                data: { productId: bowl.id, categoryFieldId: f.id, valueNumber: 1450 },
+              });
+            } else if (f.fieldKey === 'colour') {
+              await prisma.productFieldValue.create({
+                data: { productId: bowl.id, categoryFieldId: f.id, valueText: 'Antique Gold' },
+              });
+            }
+          }
+        }
+
+        const catFabB = await prisma.category.findFirst({
+          where: { companyId: compB.id, name: 'Home Décor — Meter Based' },
+          include: { fields: true },
+        });
+        if (catFabB) {
+          const silk = await prisma.product.create({
+            data: {
+              companyId: compB.id,
+              categoryId: catFabB.id,
+              name: 'Royal Silk Brocade Fabric',
+              barcode: 'BHD000001',
+              stockQuantity: 50,
+            },
+          });
+          for (const f of catFabB.fields) {
+            if (f.fieldKey === 'sellingPricePerMeter') {
+              await prisma.productFieldValue.create({
+                data: { productId: silk.id, categoryFieldId: f.id, valueNumber: 850 },
+              });
+            } else if (f.fieldKey === 'ratePerMeter') {
+              await prisma.productFieldValue.create({
+                data: { productId: silk.id, categoryFieldId: f.id, valueNumber: 750 },
+              });
+            } else if (f.fieldKey === 'material') {
+              await prisma.productFieldValue.create({
+                data: { productId: silk.id, categoryFieldId: f.id, valueText: 'Pure Silk' },
+              });
+            }
+          }
+        }
+
+        const catNeckB = await prisma.category.findFirst({
+          where: { companyId: compB.id, name: 'Artificial / Imitation Jewellery' },
+          include: { fields: true },
+        });
+        if (catNeckB) {
+          const neck = await prisma.product.create({
+            data: {
+              companyId: compB.id,
+              categoryId: catNeckB.id,
+              name: 'Kundan Choker Necklace',
+              barcode: 'BAI000002',
+              stockQuantity: 20,
+            },
+          });
+          for (const f of catNeckB.fields) {
+            if (f.fieldKey === 'sellingPrice') {
+              await prisma.productFieldValue.create({
+                data: { productId: neck.id, categoryFieldId: f.id, valueNumber: 2600 },
+              });
+            } else if (f.fieldKey === 'colour') {
+              await prisma.productFieldValue.create({
+                data: { productId: neck.id, categoryFieldId: f.id, valueText: 'Gold' },
+              });
+            }
+          }
+        }
+
+        // 5. Company A: ₹50 Demo Item (German Silver Coin)
+        const existingCoin = await prisma.product.findUnique({ where: { barcode: 'AGS000050' } });
+        if (!existingCoin && catGSA) {
+          const coin = await prisma.product.create({
+            data: {
+              companyId: compA.id,
+              categoryId: catGSA.id,
+              name: 'German Silver Coin (₹50 Test Item)',
+              barcode: 'AGS000050',
+              stockQuantity: 100,
+            },
+          });
+          for (const f of catGSA.fields) {
+            if (f.fieldKey === 'sellingPrice') {
+              await prisma.productFieldValue.create({
+                data: { productId: coin.id, categoryFieldId: f.id, valueNumber: 50 },
+              });
+            } else if (f.fieldKey === 'colour') {
+              await prisma.productFieldValue.create({
+                data: { productId: coin.id, categoryFieldId: f.id, valueText: 'Silver' },
+              });
+            }
+          }
+        }
+
+        // 6. Company B: ₹50 Demo Item (Imitation Brooch Pin)
+        const existingBrooch = await prisma.product.findUnique({ where: { barcode: 'BAI000050' } });
+        if (!existingBrooch && catNeckB) {
+          const brooch = await prisma.product.create({
+            data: {
+              companyId: compB.id,
+              categoryId: catNeckB.id,
+              name: 'Floral Brooch Pin (₹50 Test Item)',
+              barcode: 'BAI000050',
+              stockQuantity: 100,
+            },
+          });
+          for (const f of catNeckB.fields) {
+            if (f.fieldKey === 'sellingPrice') {
+              await prisma.productFieldValue.create({
+                data: { productId: brooch.id, categoryFieldId: f.id, valueNumber: 50 },
+              });
+            } else if (f.fieldKey === 'colour') {
+              await prisma.productFieldValue.create({
+                data: { productId: brooch.id, categoryFieldId: f.id, valueText: 'Gold' },
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 6. Seed Sample Vendors if none exist
+    const vendorCount = await prisma.vendor.count();
+    if (vendorCount === 0) {
+      const compA = await prisma.company.findUnique({ where: { code: 'COMPANY_A' } });
+      const compB = await prisma.company.findUnique({ where: { code: 'COMPANY_B' } });
+      if (compA) {
+        await prisma.vendor.create({
+          data: {
+            companyId: compA.id,
+            name: 'Surat Bullion & Gems Traders',
+            phoneNumber: '+91 98251 44520',
+          },
+        });
+        await prisma.vendor.create({
+          data: {
+            companyId: compA.id,
+            name: 'Zaveri Jewellers Wholesale',
+            phoneNumber: '+91 98200 12345',
+          },
+        });
+      }
+      if (compB) {
+        await prisma.vendor.create({
+          data: {
+            companyId: compB.id,
+            name: 'Jaipur Heritage Crafts & Brocade',
+            phoneNumber: '+91 94140 88710',
+          },
+        });
+      }
+    }
+
     console.log(`\n==================================================`);
-    console.log(`PRISMA SEED: COMPLETE (Companies, Admins, 5 Categories, Metal Rates)`);
+    console.log(`PRISMA SEED: COMPLETE (Companies, Admins, Billing User, Categories, Metal Rates, Demo Products)`);
     console.log(`==================================================`);
     console.log(`Companies in database (${companyCount}):`);
     for (const c of companyResults) {

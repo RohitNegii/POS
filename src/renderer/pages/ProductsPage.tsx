@@ -239,6 +239,11 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
                     {/* Name */}
                     <td className="px-6 py-4">
                       <div className="font-bold text-stone-900">{prod.name}</div>
+                      {prod.vendorName && (
+                        <div className="text-[10px] text-stone-500 font-medium mt-0.5 flex items-center gap-1">
+                          <span className="text-amber-700">Vendor:</span> {prod.vendorName}
+                        </div>
+                      )}
                     </td>
 
                     {/* Category */}
@@ -278,17 +283,38 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
                           Rate Missing
                         </span>
                       ) : (() => {
-                        const priceFv = prod.fieldValues?.find(
+                        const sVal = prod.sellingPrice ?? prod.fieldValues?.find(
                           (fv) =>
                             fv.categoryField?.fieldKey === 'sellingPrice' ||
                             fv.categoryField?.fieldKey === 'sellingPricePerMeter'
+                        )?.valueNumber;
+
+                        const isPerMeter = prod.fieldValues?.some(
+                          (fv) => fv.categoryField?.fieldKey === 'sellingPricePerMeter'
                         );
-                        if (priceFv && priceFv.valueNumber !== null && priceFv.valueNumber !== undefined) {
+
+                        if (sVal !== null && sVal !== undefined) {
                           return (
-                            <span className="font-mono text-xs font-bold text-stone-900">
-                              ₹{priceFv.valueNumber.toLocaleString()}
-                              {priceFv.categoryField?.fieldKey === 'sellingPricePerMeter' ? '/m' : ''}
-                            </span>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-xs font-bold text-stone-900">
+                                  ₹{sVal.toLocaleString()}
+                                  {isPerMeter ? '/m' : ''}
+                                </span>
+                                {prod.marginPercentage !== null && prod.marginPercentage !== undefined && (
+                                  <span
+                                    className={`rounded px-1.5 py-0.2 text-[9px] font-mono font-bold border ${
+                                      prod.marginPercentage >= 0
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        : 'bg-rose-50 text-rose-800 border-rose-200'
+                                    }`}
+                                    title={`Margin on cost: ${prod.marginPercentage}%`}
+                                  >
+                                    {prod.marginPercentage >= 0 ? `+${prod.marginPercentage}%` : `${prod.marginPercentage}%`}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           );
                         }
                         return <span className="text-stone-400">—</span>;

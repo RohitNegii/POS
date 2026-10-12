@@ -132,14 +132,82 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </button>
           </form>
 
+          {/* Demo User Accounts Quick Switcher */}
+          <div className="mt-6 border-t border-cream-200 pt-4">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-stone-500 text-center mb-2.5">
+              Select User Role to Login:
+            </div>
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('billing@example.com');
+                  setPassword('Billing@123');
+                }}
+                className="w-full flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50/70 hover:bg-amber-100/70 p-2 text-left transition"
+              >
+                <div>
+                  <div className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    Billing User (Both Companies)
+                  </div>
+                  <div className="text-[10px] text-amber-800">billing@example.com • Billing@123</div>
+                </div>
+                <span className="rounded bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                  Fill
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('adminA@example.com');
+                  setPassword('Admin@123');
+                }}
+                className="w-full flex items-center justify-between rounded-xl border border-cream-300 bg-cream-50/60 hover:bg-cream-100 p-2 text-left transition"
+              >
+                <div>
+                  <div className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-amber-600" />
+                    Company A Admin
+                  </div>
+                  <div className="text-[10px] text-stone-500">adminA@example.com • Admin@123</div>
+                </div>
+                <span className="rounded bg-cream-200 px-2 py-0.5 text-[10px] font-semibold text-stone-700">
+                  Fill
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('adminB@example.com');
+                  setPassword('Admin@123');
+                }}
+                className="w-full flex items-center justify-between rounded-xl border border-cream-300 bg-cream-50/60 hover:bg-cream-100 p-2 text-left transition"
+              >
+                <div>
+                  <div className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-indigo-600" />
+                    Company B Admin
+                  </div>
+                  <div className="text-[10px] text-stone-500">adminB@example.com • Admin@123</div>
+                </div>
+                <span className="rounded bg-cream-200 px-2 py-0.5 text-[10px] font-semibold text-stone-700">
+                  Fill
+                </span>
+              </button>
+            </div>
+          </div>
+
           {/* Secure Notice */}
-          <div className="mt-6 rounded-xl border border-cream-300 bg-cream-50/70 p-3 text-center text-[11px] text-stone-600">
-            Secure offline store management system
+          <div className="mt-5 rounded-xl border border-cream-300 bg-cream-50/70 p-2.5 text-center text-[11px] text-stone-600">
+            Secure offline retail POS management system
           </div>
         </div>
 
         <div className="mt-4 text-center text-xs text-stone-500">
-          Retail POS System
+          Retail POS Desktop
         </div>
       </div>
     </div>

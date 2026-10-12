@@ -188,56 +188,117 @@ export class ProductService {
   }
 
   /**
-   * Helper to extract purchase pricing attributes from dynamic ProductFieldValue list.
+   * Helper to extract purchase and selling pricing attributes from dynamic ProductFieldValue list.
    */
   private extractPurchasePricing(fieldValuesDto: ProductFieldValueDto[]): {
     purchasePrice: number | null;
+    purchaseRatePerGram: number | null;
+    purchaseMakingChargesPerGram: number | null;
     additionalChargesPercentage: number | null;
     actualPurchasePrice: number | null;
     actualPurchasePriceCode: string | null;
+    sellingPrice: number | null;
+    marginPercentage: number | null;
   } {
     const pFv = fieldValuesDto.find((f) => f.categoryField?.fieldKey === 'purchasePrice');
+    const rpFv = fieldValuesDto.find((f) => f.categoryField?.fieldKey === 'purchaseRatePerGram');
+    const mpFv = fieldValuesDto.find((f) => f.categoryField?.fieldKey === 'purchaseMakingChargesPerGram');
     const cFv = fieldValuesDto.find((f) => f.categoryField?.fieldKey === 'additionalChargesPercentage');
     const aFv = fieldValuesDto.find((f) => f.categoryField?.fieldKey === 'actualPurchasePrice');
     const codeFv = fieldValuesDto.find((f) => f.categoryField?.fieldKey === 'actualPurchasePriceCode');
+    const sFv = fieldValuesDto.find((f) => f.categoryField?.fieldKey === 'sellingPrice');
+    const mFv = fieldValuesDto.find((f) => f.categoryField?.fieldKey === 'marginPercentage' || f.categoryField?.fieldKey === 'margin');
 
     const purchasePrice = pFv?.valueNumber ?? null;
+    const purchaseRatePerGram = rpFv?.valueNumber ?? null;
+    const purchaseMakingChargesPerGram = mpFv?.valueNumber ?? null;
     const additionalChargesPercentage = cFv?.valueNumber ?? null;
     const actualPurchasePrice = aFv?.valueNumber ?? null;
     const actualPurchasePriceCode =
       codeFv?.valueText ?? generateActualPurchasePriceCode(actualPurchasePrice);
+    const sellingPrice = sFv?.valueNumber ?? null;
+    let marginPercentage = mFv?.valueNumber ?? null;
+
+    if (marginPercentage === null && sellingPrice !== null && actualPurchasePrice !== null && actualPurchasePrice > 0) {
+      marginPercentage = Math.round(((sellingPrice - actualPurchasePrice) / actualPurchasePrice) * 100 * 100) / 100;
+    }
 
     return {
       purchasePrice,
+      purchaseRatePerGram,
+      purchaseMakingChargesPerGram,
       additionalChargesPercentage,
       actualPurchasePrice,
       actualPurchasePriceCode,
+      sellingPrice,
+      marginPercentage,
     };
   }
 
   /**
-   * Helper to ensure standard purchase pricing CategoryFields exist for a category.
-   * Field keys: 'purchasePrice', 'additionalChargesPercentage', 'actualPurchasePrice'.
+   * Helper to ensure standard purchase and selling pricing CategoryFields exist for a category.
+   * Field keys: 'purchaseRatePerGram', 'purchaseMakingChargesPerGram', 'purchasePrice', 'additionalChargesPercentage', 'actualPurchasePrice', 'actualPurchasePriceCode', 'sellingPrice', 'marginPercentage'.
    */
   public async ensurePurchaseCategoryFields(
     tx: Prisma.TransactionClient,
     categoryId: string
   ): Promise<{
+    purchaseRatePerGramField: { id: string; fieldKey: string };
+    purchaseMakingChargesPerGramField: { id: string; fieldKey: string };
     purchasePriceField: { id: string; fieldKey: string };
     additionalChargesField: { id: string; fieldKey: string };
     actualPurchasePriceField: { id: string; fieldKey: string };
     actualPurchasePriceCodeField: { id: string; fieldKey: string };
+    sellingPriceField: { id: string; fieldKey: string };
+    marginPercentageField: { id: string; fieldKey: string };
   }> {
     const existing = await tx.categoryField.findMany({
       where: {
         categoryId,
         fieldKey: {
-          in: ['purchasePrice', 'additionalChargesPercentage', 'actualPurchasePrice', 'actualPurchasePriceCode'],
+          in: [
+            'purchaseRatePerGram',
+            'purchaseMakingChargesPerGram',
+            'purchasePrice',
+            'additionalChargesPercentage',
+            'actualPurchasePrice',
+            'actualPurchasePriceCode',
+            'sellingPrice',
+            'marginPercentage',
+          ],
         },
       },
     });
 
     const existingMap = new Map(existing.map((f) => [f.fieldKey, f]));
+
+    let purchaseRatePerGramField = existingMap.get('purchaseRatePerGram');
+    if (!purchaseRatePerGramField) {
+      purchaseRatePerGramField = await tx.categoryField.create({
+        data: {
+          categoryId,
+          name: 'Purchase Rate per Gram',
+          fieldKey: 'purchaseRatePerGram',
+          fieldType: 'number',
+          required: false,
+          displayOrder: 898,
+        },
+      });
+    }
+
+    let purchaseMakingChargesPerGramField = existingMap.get('purchaseMakingChargesPerGram');
+    if (!purchaseMakingChargesPerGramField) {
+      purchaseMakingChargesPerGramField = await tx.categoryField.create({
+        data: {
+          categoryId,
+          name: 'Purchase Making Charges per Gram',
+          fieldKey: 'purchaseMakingChargesPerGram',
+          fieldType: 'number',
+          required: false,
+          displayOrder: 899,
+        },
+      });
+    }
 
     let purchasePriceField = existingMap.get('purchasePrice');
     if (!purchasePriceField) {
@@ -295,11 +356,43 @@ export class ProductService {
       });
     }
 
+    let sellingPriceField = existingMap.get('sellingPrice');
+    if (!sellingPriceField) {
+      sellingPriceField = await tx.categoryField.create({
+        data: {
+          categoryId,
+          name: 'Selling Price',
+          fieldKey: 'sellingPrice',
+          fieldType: 'number',
+          required: false,
+          displayOrder: 904,
+        },
+      });
+    }
+
+    let marginPercentageField = existingMap.get('marginPercentage');
+    if (!marginPercentageField) {
+      marginPercentageField = await tx.categoryField.create({
+        data: {
+          categoryId,
+          name: 'Margin (%)',
+          fieldKey: 'marginPercentage',
+          fieldType: 'number',
+          required: false,
+          displayOrder: 905,
+        },
+      });
+    }
+
     return {
+      purchaseRatePerGramField,
+      purchaseMakingChargesPerGramField,
       purchasePriceField,
       additionalChargesField,
       actualPurchasePriceField,
       actualPurchasePriceCodeField,
+      sellingPriceField,
+      marginPercentageField,
     };
   }
 
@@ -378,6 +471,9 @@ export class ProductService {
         category: {
           select: { name: true },
         },
+        vendor: {
+          select: { id: true, name: true, phoneNumber: true },
+        },
         fieldValues: {
           include: {
             categoryField: true,
@@ -430,9 +526,17 @@ export class ProductService {
         calculatedJewelleryPrice: pricingInfo.calculatedJewelleryPrice,
         pricingError: pricingInfo.pricingError,
         purchasePrice: purchasePricing.purchasePrice,
+        purchaseRatePerGram: purchasePricing.purchaseRatePerGram,
+        purchaseMakingChargesPerGram: purchasePricing.purchaseMakingChargesPerGram,
         additionalChargesPercentage: purchasePricing.additionalChargesPercentage,
         actualPurchasePrice: purchasePricing.actualPurchasePrice,
         actualPurchasePriceCode: purchasePricing.actualPurchasePriceCode,
+        sellingPrice: purchasePricing.sellingPrice,
+        marginPercentage: purchasePricing.marginPercentage,
+        vendorId: p.vendorId,
+        vendorName: p.vendor?.name || null,
+        vendorPhone: p.vendor?.phoneNumber || null,
+        purchaseDate: p.purchaseDate || null,
       });
     }
 
@@ -455,6 +559,9 @@ export class ProductService {
       include: {
         category: {
           select: { name: true },
+        },
+        vendor: {
+          select: { id: true, name: true, phoneNumber: true },
         },
         fieldValues: {
           include: {
@@ -522,9 +629,17 @@ export class ProductService {
       calculatedJewelleryPrice: pricingInfo.calculatedJewelleryPrice,
       pricingError: pricingInfo.pricingError,
       purchasePrice: purchasePricing.purchasePrice,
+      purchaseRatePerGram: purchasePricing.purchaseRatePerGram,
+      purchaseMakingChargesPerGram: purchasePricing.purchaseMakingChargesPerGram,
       additionalChargesPercentage: purchasePricing.additionalChargesPercentage,
       actualPurchasePrice: purchasePricing.actualPurchasePrice,
       actualPurchasePriceCode: purchasePricing.actualPurchasePriceCode,
+      sellingPrice: purchasePricing.sellingPrice,
+      marginPercentage: purchasePricing.marginPercentage,
+      vendorId: product.vendorId,
+      vendorName: product.vendor?.name || null,
+      vendorPhone: product.vendor?.phoneNumber || null,
+      purchaseDate: product.purchaseDate || null,
     };
   }
 
@@ -553,49 +668,131 @@ export class ProductService {
       orderBy: { displayOrder: 'asc' },
     });
 
-    // Extract purchase pricing from direct fields or fieldValues
+    // Extract purchase & selling pricing from direct fields or fieldValues
     let rawPurchasePrice: unknown = input.purchasePrice;
+    let rawPurchaseRate: unknown = input.purchaseRatePerGram;
+    let rawPurchaseMaking: unknown = input.purchaseMakingChargesPerGram;
     let rawAdditionalCharges: unknown = input.additionalChargesPercentage;
+    let rawSellingPrice: unknown = input.sellingPrice;
+    let rawMargin: unknown = input.marginPercentage;
 
     if (Array.isArray(input.fieldValues)) {
       for (const fv of input.fieldValues) {
         const cf = categoryFields.find((f) => f.id === fv.categoryFieldId);
         if (cf?.fieldKey === 'purchasePrice' && rawPurchasePrice === undefined) {
           rawPurchasePrice = fv.valueNumber;
+        } else if (cf?.fieldKey === 'purchaseRatePerGram' && rawPurchaseRate === undefined) {
+          rawPurchaseRate = fv.valueNumber;
+        } else if (cf?.fieldKey === 'purchaseMakingChargesPerGram' && rawPurchaseMaking === undefined) {
+          rawPurchaseMaking = fv.valueNumber;
         } else if (cf?.fieldKey === 'additionalChargesPercentage' && rawAdditionalCharges === undefined) {
           rawAdditionalCharges = fv.valueNumber;
+        } else if (cf?.fieldKey === 'sellingPrice' && rawSellingPrice === undefined) {
+          rawSellingPrice = fv.valueNumber;
+        } else if ((cf?.fieldKey === 'marginPercentage' || cf?.fieldKey === 'margin') && rawMargin === undefined) {
+          rawMargin = fv.valueNumber;
         }
       }
     }
 
-    let purchasePriceVal: number | null = null;
+    const hasPurityField = categoryFields.some(
+      (f) => f.fieldKey === 'purity' || f.name.toLowerCase().includes('purity')
+    );
+
     let additionalChargesVal: number | null = null;
-    let actualPurchasePriceVal: number | null = null;
-
-    if (rawPurchasePrice !== undefined && rawPurchasePrice !== null && String(rawPurchasePrice).trim() !== '') {
-      const num = typeof rawPurchasePrice === 'number' ? rawPurchasePrice : parseFloat(String(rawPurchasePrice));
-      if (isNaN(num) || num < 0) {
-        throw new Error('Purchase Price must be a valid non-negative number.');
-      }
-      purchasePriceVal = num;
-
-      if (rawAdditionalCharges !== undefined && rawAdditionalCharges !== null && String(rawAdditionalCharges).trim() !== '') {
-        const cNum = typeof rawAdditionalCharges === 'number' ? rawAdditionalCharges : parseFloat(String(rawAdditionalCharges));
-        if (isNaN(cNum) || cNum < 0) {
-          throw new Error('Additional Charges must be a valid non-negative percentage.');
-        }
-        additionalChargesVal = cNum;
-      } else {
-        additionalChargesVal = 0;
-      }
-
-      actualPurchasePriceVal = Math.round((purchasePriceVal + (purchasePriceVal * additionalChargesVal / 100)) * 100) / 100;
-    } else if (rawAdditionalCharges !== undefined && rawAdditionalCharges !== null && String(rawAdditionalCharges).trim() !== '') {
+    if (rawAdditionalCharges !== undefined && rawAdditionalCharges !== null && String(rawAdditionalCharges).trim() !== '') {
       const cNum = typeof rawAdditionalCharges === 'number' ? rawAdditionalCharges : parseFloat(String(rawAdditionalCharges));
       if (isNaN(cNum) || cNum < 0) {
         throw new Error('Additional Charges must be a valid non-negative percentage.');
       }
       additionalChargesVal = cNum;
+    }
+
+    let purchaseRatePerGramVal: number | null = null;
+    let purchaseMakingChargesPerGramVal: number | null = null;
+
+    if (rawPurchaseRate !== undefined && rawPurchaseRate !== null && String(rawPurchaseRate).trim() !== '') {
+      const rpNum = typeof rawPurchaseRate === 'number' ? rawPurchaseRate : parseFloat(String(rawPurchaseRate));
+      if (isNaN(rpNum) || rpNum < 0) {
+        throw new Error('Purchase Rate per Gram must be a valid non-negative number.');
+      }
+      purchaseRatePerGramVal = rpNum;
+    }
+
+    if (rawPurchaseMaking !== undefined && rawPurchaseMaking !== null && String(rawPurchaseMaking).trim() !== '') {
+      const mpNum = typeof rawPurchaseMaking === 'number' ? rawPurchaseMaking : parseFloat(String(rawPurchaseMaking));
+      if (isNaN(mpNum) || mpNum < 0) {
+        throw new Error('Purchase Making Charges per Gram must be a valid non-negative number.');
+      }
+      purchaseMakingChargesPerGramVal = mpNum;
+    }
+
+    // Weight extraction
+    let weightVal: number | null = null;
+    const weightField = categoryFields.find(
+      (f) => f.fieldKey === 'weight' || f.name.toLowerCase().includes('weight')
+    );
+    if (weightField && Array.isArray(input.fieldValues)) {
+      const wFv = input.fieldValues.find((f) => f.categoryFieldId === weightField.id);
+      if (wFv?.valueNumber !== undefined && wFv?.valueNumber !== null && String(wFv.valueNumber).trim() !== '') {
+        const wNum = typeof wFv.valueNumber === 'number' ? wFv.valueNumber : parseFloat(String(wFv.valueNumber));
+        if (!isNaN(wNum) && wNum > 0) {
+          weightVal = wNum;
+        }
+      }
+    }
+
+    let purchasePriceVal: number | null = null;
+    let actualPurchasePriceVal: number | null = null;
+
+    if (hasPurityField && purchaseRatePerGramVal !== null && weightVal !== null && weightVal > 0) {
+      const baseCost = weightVal * purchaseRatePerGramVal;
+      const makingCost = weightVal * (purchaseMakingChargesPerGramVal ?? 0);
+      const addPercent = additionalChargesVal ?? 0;
+      const addCostAmt = baseCost * (addPercent / 100);
+
+      purchasePriceVal = Math.round((baseCost + makingCost) * 100) / 100;
+      actualPurchasePriceVal = Math.round((baseCost + makingCost + addCostAmt) * 100) / 100;
+      if (additionalChargesVal === null) {
+        additionalChargesVal = 0;
+      }
+    } else if (rawPurchasePrice !== undefined && rawPurchasePrice !== null && String(rawPurchasePrice).trim() !== '') {
+      const num = typeof rawPurchasePrice === 'number' ? rawPurchasePrice : parseFloat(String(rawPurchasePrice));
+      if (isNaN(num) || num < 0) {
+        throw new Error('Purchase Price must be a valid non-negative number.');
+      }
+      purchasePriceVal = num;
+      if (additionalChargesVal === null) {
+        additionalChargesVal = 0;
+      }
+      actualPurchasePriceVal = Math.round((purchasePriceVal + (purchasePriceVal * additionalChargesVal / 100)) * 100) / 100;
+    }
+
+    // Selling price and margin parsing & auto calculation
+    let sellingPriceVal: number | null = null;
+    let marginVal: number | null = null;
+
+    if (rawSellingPrice !== undefined && rawSellingPrice !== null && String(rawSellingPrice).trim() !== '') {
+      const spNum = typeof rawSellingPrice === 'number' ? rawSellingPrice : parseFloat(String(rawSellingPrice));
+      if (isNaN(spNum) || spNum < 0) {
+        throw new Error('Selling Price must be a valid non-negative number.');
+      }
+      sellingPriceVal = Math.round(spNum * 100) / 100;
+    }
+
+    if (rawMargin !== undefined && rawMargin !== null && String(rawMargin).trim() !== '') {
+      const mNum = typeof rawMargin === 'number' ? rawMargin : parseFloat(String(rawMargin));
+      if (isNaN(mNum)) {
+        throw new Error('Margin must be a valid number.');
+      }
+      marginVal = Math.round(mNum * 100) / 100;
+    }
+
+    // Two-way calculation if cost is available
+    if (sellingPriceVal !== null && marginVal === null && actualPurchasePriceVal !== null && actualPurchasePriceVal > 0) {
+      marginVal = Math.round(((sellingPriceVal - actualPurchasePriceVal) / actualPurchasePriceVal) * 100 * 100) / 100;
+    } else if (marginVal !== null && sellingPriceVal === null && actualPurchasePriceVal !== null && actualPurchasePriceVal > 0) {
+      sellingPriceVal = Math.round((actualPurchasePriceVal + (actualPurchasePriceVal * marginVal / 100)) * 100) / 100;
     }
 
     // 4. Validate and build sanitized field value records
@@ -608,6 +805,18 @@ export class ProductService {
       }
     }
 
+    const INTERNAL_SYSTEM_KEYS = [
+      'purchasePrice',
+      'purchaseRatePerGram',
+      'purchaseMakingChargesPerGram',
+      'additionalChargesPercentage',
+      'actualPurchasePrice',
+      'actualPurchasePriceCode',
+      'sellingPrice',
+      'marginPercentage',
+      'margin',
+    ];
+
     const fieldValuesToCreate: Array<{
       categoryFieldId: string;
       valueText: string | null;
@@ -616,6 +825,11 @@ export class ProductService {
     }> = [];
 
     for (const field of categoryFields) {
+      // Internal pricing fields are managed dedicatedly below
+      if (INTERNAL_SYSTEM_KEYS.includes(field.fieldKey)) {
+        continue;
+      }
+
       const userVal = inputMap.get(field.id);
       const parsedOpts = this.parseOptions(field.options) || [];
 
@@ -697,18 +911,51 @@ export class ProductService {
 
     // 7. Execute atomic database transaction
     const createdProduct = await prisma.$transaction(async (tx) => {
-      // If purchase pricing was provided, ensure standard CategoryFields exist
-      if (purchasePriceVal !== null || additionalChargesVal !== null) {
-        const purchaseFields = await this.ensurePurchaseCategoryFields(tx, input.categoryId);
+      // Ensure pricing CategoryFields exist and populate them
+      if (
+        purchasePriceVal !== null ||
+        actualPurchasePriceVal !== null ||
+        purchaseRatePerGramVal !== null ||
+        additionalChargesVal !== null ||
+        sellingPriceVal !== null ||
+        marginVal !== null
+      ) {
+        const pricingFields = await this.ensurePurchaseCategoryFields(tx, input.categoryId);
         const actualPurchasePriceCodeVal = generateActualPurchasePriceCode(actualPurchasePriceVal);
 
+        // Append or update purchaseRatePerGram
+        const rpIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.purchaseRatePerGramField.id);
+        if (rpIdx >= 0) {
+          fieldValuesToCreate[rpIdx].valueNumber = purchaseRatePerGramVal;
+        } else if (purchaseRatePerGramVal !== null) {
+          fieldValuesToCreate.push({
+            categoryFieldId: pricingFields.purchaseRatePerGramField.id,
+            valueText: null,
+            valueNumber: purchaseRatePerGramVal,
+            valueBoolean: null,
+          });
+        }
+
+        // Append or update purchaseMakingChargesPerGram
+        const mpIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.purchaseMakingChargesPerGramField.id);
+        if (mpIdx >= 0) {
+          fieldValuesToCreate[mpIdx].valueNumber = purchaseMakingChargesPerGramVal;
+        } else if (purchaseMakingChargesPerGramVal !== null) {
+          fieldValuesToCreate.push({
+            categoryFieldId: pricingFields.purchaseMakingChargesPerGramField.id,
+            valueText: null,
+            valueNumber: purchaseMakingChargesPerGramVal,
+            valueBoolean: null,
+          });
+        }
+
         // Append or update purchasePrice
-        const pIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === purchaseFields.purchasePriceField.id);
+        const pIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.purchasePriceField.id);
         if (pIdx >= 0) {
           fieldValuesToCreate[pIdx].valueNumber = purchasePriceVal;
-        } else {
+        } else if (purchasePriceVal !== null) {
           fieldValuesToCreate.push({
-            categoryFieldId: purchaseFields.purchasePriceField.id,
+            categoryFieldId: pricingFields.purchasePriceField.id,
             valueText: null,
             valueNumber: purchasePriceVal,
             valueBoolean: null,
@@ -716,12 +963,12 @@ export class ProductService {
         }
 
         // Append or update additionalChargesPercentage
-        const cIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === purchaseFields.additionalChargesField.id);
+        const cIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.additionalChargesField.id);
         if (cIdx >= 0) {
           fieldValuesToCreate[cIdx].valueNumber = additionalChargesVal;
-        } else {
+        } else if (additionalChargesVal !== null) {
           fieldValuesToCreate.push({
-            categoryFieldId: purchaseFields.additionalChargesField.id,
+            categoryFieldId: pricingFields.additionalChargesField.id,
             valueText: null,
             valueNumber: additionalChargesVal,
             valueBoolean: null,
@@ -729,12 +976,12 @@ export class ProductService {
         }
 
         // Append or update actualPurchasePrice
-        const aIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === purchaseFields.actualPurchasePriceField.id);
+        const aIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.actualPurchasePriceField.id);
         if (aIdx >= 0) {
           fieldValuesToCreate[aIdx].valueNumber = actualPurchasePriceVal;
-        } else {
+        } else if (actualPurchasePriceVal !== null) {
           fieldValuesToCreate.push({
-            categoryFieldId: purchaseFields.actualPurchasePriceField.id,
+            categoryFieldId: pricingFields.actualPurchasePriceField.id,
             valueText: null,
             valueNumber: actualPurchasePriceVal,
             valueBoolean: null,
@@ -742,19 +989,46 @@ export class ProductService {
         }
 
         // Append or update actualPurchasePriceCode
-        const codeIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === purchaseFields.actualPurchasePriceCodeField.id);
+        const codeIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.actualPurchasePriceCodeField.id);
         if (codeIdx >= 0) {
           fieldValuesToCreate[codeIdx].valueText = actualPurchasePriceCodeVal;
-        } else {
+        } else if (actualPurchasePriceCodeVal !== null) {
           fieldValuesToCreate.push({
-            categoryFieldId: purchaseFields.actualPurchasePriceCodeField.id,
+            categoryFieldId: pricingFields.actualPurchasePriceCodeField.id,
             valueText: actualPurchasePriceCodeVal,
             valueNumber: null,
             valueBoolean: null,
           });
         }
+
+        // Append or update sellingPrice
+        const sIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.sellingPriceField.id);
+        if (sIdx >= 0) {
+          fieldValuesToCreate[sIdx].valueNumber = sellingPriceVal;
+        } else if (sellingPriceVal !== null) {
+          fieldValuesToCreate.push({
+            categoryFieldId: pricingFields.sellingPriceField.id,
+            valueText: null,
+            valueNumber: sellingPriceVal,
+            valueBoolean: null,
+          });
+        }
+
+        // Append or update marginPercentage
+        const mIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.marginPercentageField.id);
+        if (mIdx >= 0) {
+          fieldValuesToCreate[mIdx].valueNumber = marginVal;
+        } else if (marginVal !== null) {
+          fieldValuesToCreate.push({
+            categoryFieldId: pricingFields.marginPercentageField.id,
+            valueText: null,
+            valueNumber: marginVal,
+            valueBoolean: null,
+          });
+        }
       }
 
+      const purchaseDate = input.purchaseDate?.trim() || new Date().toISOString().split('T')[0];
       const product = await tx.product.create({
         data: {
           companyId,
@@ -763,6 +1037,8 @@ export class ProductService {
           barcode,
           stockQuantity,
           isArchived: false,
+          vendorId: input.vendorId || null,
+          purchaseDate: input.purchaseDate?.trim() || null,
         },
       });
 
@@ -775,6 +1051,55 @@ export class ProductService {
             valueNumber: fv.valueNumber,
             valueBoolean: fv.valueBoolean,
           })),
+        });
+      }
+
+      // If a vendor was selected, record the initial purchase in purchase history
+      if (input.vendorId) {
+        const cost = actualPurchasePriceVal ?? purchasePriceVal ?? 0;
+        const qty = stockQuantity > 0 ? stockQuantity : 1;
+        const total = Math.round(qty * cost * 100) / 100;
+
+        let purchase = await tx.purchase.findUnique({
+          where: {
+            companyId_vendorId_purchaseDate: {
+              companyId,
+              vendorId: input.vendorId,
+              purchaseDate,
+            },
+          },
+        });
+
+        if (!purchase) {
+          purchase = await tx.purchase.create({
+            data: {
+              companyId,
+              vendorId: input.vendorId,
+              purchaseDate,
+              totalAmount: total,
+              notes: JSON.stringify({ status: 'UNPAID', method: null, note: null }),
+            },
+          });
+        } else {
+          purchase = await tx.purchase.update({
+            where: { id: purchase.id },
+            data: {
+              totalAmount: { increment: total },
+            },
+          });
+        }
+
+        await tx.purchaseItem.create({
+          data: {
+            purchaseId: purchase.id,
+            productId: product.id,
+            productName: product.name,
+            barcode: product.barcode,
+            categoryName: category.name,
+            quantityBought: qty,
+            unitCost: cost,
+            totalAmount: total,
+          },
         });
       }
 
@@ -815,50 +1140,146 @@ export class ProductService {
       where: { categoryId: existingProduct.categoryId },
     });
 
-    // Extract purchase pricing from direct fields or fieldValues
+    // Extract purchase & selling pricing from direct fields or fieldValues
     let rawPurchasePrice: unknown = input.purchasePrice;
+    let rawPurchaseRate: unknown = input.purchaseRatePerGram;
+    let rawPurchaseMaking: unknown = input.purchaseMakingChargesPerGram;
     let rawAdditionalCharges: unknown = input.additionalChargesPercentage;
+    let rawSellingPrice: unknown = input.sellingPrice;
+    let rawMargin: unknown = input.marginPercentage;
 
     if (Array.isArray(input.fieldValues)) {
       for (const fv of input.fieldValues) {
         const cf = categoryFields.find((f) => f.id === fv.categoryFieldId);
         if (cf?.fieldKey === 'purchasePrice' && rawPurchasePrice === undefined) {
           rawPurchasePrice = fv.valueNumber;
+        } else if (cf?.fieldKey === 'purchaseRatePerGram' && rawPurchaseRate === undefined) {
+          rawPurchaseRate = fv.valueNumber;
+        } else if (cf?.fieldKey === 'purchaseMakingChargesPerGram' && rawPurchaseMaking === undefined) {
+          rawPurchaseMaking = fv.valueNumber;
         } else if (cf?.fieldKey === 'additionalChargesPercentage' && rawAdditionalCharges === undefined) {
           rawAdditionalCharges = fv.valueNumber;
+        } else if (cf?.fieldKey === 'sellingPrice' && rawSellingPrice === undefined) {
+          rawSellingPrice = fv.valueNumber;
+        } else if ((cf?.fieldKey === 'marginPercentage' || cf?.fieldKey === 'margin') && rawMargin === undefined) {
+          rawMargin = fv.valueNumber;
         }
       }
     }
 
-    let purchasePriceVal: number | null = null;
+    const hasPurityField = categoryFields.some(
+      (f) => f.fieldKey === 'purity' || f.name.toLowerCase().includes('purity')
+    );
+
     let additionalChargesVal: number | null = null;
-    let actualPurchasePriceVal: number | null = null;
-    const hasPurchasePriceInput = rawPurchasePrice !== undefined;
-
-    if (rawPurchasePrice !== undefined && rawPurchasePrice !== null && String(rawPurchasePrice).trim() !== '') {
-      const num = typeof rawPurchasePrice === 'number' ? rawPurchasePrice : parseFloat(String(rawPurchasePrice));
-      if (isNaN(num) || num < 0) {
-        throw new Error('Purchase Price must be a valid non-negative number.');
-      }
-      purchasePriceVal = num;
-
-      if (rawAdditionalCharges !== undefined && rawAdditionalCharges !== null && String(rawAdditionalCharges).trim() !== '') {
-        const cNum = typeof rawAdditionalCharges === 'number' ? rawAdditionalCharges : parseFloat(String(rawAdditionalCharges));
-        if (isNaN(cNum) || cNum < 0) {
-          throw new Error('Additional Charges must be a valid non-negative percentage.');
-        }
-        additionalChargesVal = cNum;
-      } else {
-        additionalChargesVal = 0;
-      }
-
-      actualPurchasePriceVal = Math.round((purchasePriceVal + (purchasePriceVal * additionalChargesVal / 100)) * 100) / 100;
-    } else if (rawAdditionalCharges !== undefined && rawAdditionalCharges !== null && String(rawAdditionalCharges).trim() !== '') {
+    if (rawAdditionalCharges !== undefined && rawAdditionalCharges !== null && String(rawAdditionalCharges).trim() !== '') {
       const cNum = typeof rawAdditionalCharges === 'number' ? rawAdditionalCharges : parseFloat(String(rawAdditionalCharges));
       if (isNaN(cNum) || cNum < 0) {
         throw new Error('Additional Charges must be a valid non-negative percentage.');
       }
       additionalChargesVal = cNum;
+    }
+
+    let purchaseRatePerGramVal: number | null = null;
+    let purchaseMakingChargesPerGramVal: number | null = null;
+
+    if (rawPurchaseRate !== undefined && rawPurchaseRate !== null && String(rawPurchaseRate).trim() !== '') {
+      const rpNum = typeof rawPurchaseRate === 'number' ? rawPurchaseRate : parseFloat(String(rawPurchaseRate));
+      if (isNaN(rpNum) || rpNum < 0) {
+        throw new Error('Purchase Rate per Gram must be a valid non-negative number.');
+      }
+      purchaseRatePerGramVal = rpNum;
+    }
+
+    if (rawPurchaseMaking !== undefined && rawPurchaseMaking !== null && String(rawPurchaseMaking).trim() !== '') {
+      const mpNum = typeof rawPurchaseMaking === 'number' ? rawPurchaseMaking : parseFloat(String(rawPurchaseMaking));
+      if (isNaN(mpNum) || mpNum < 0) {
+        throw new Error('Purchase Making Charges per Gram must be a valid non-negative number.');
+      }
+      purchaseMakingChargesPerGramVal = mpNum;
+    }
+
+    // Weight extraction
+    let weightVal: number | null = null;
+    const weightField = categoryFields.find(
+      (f) => f.fieldKey === 'weight' || f.name.toLowerCase().includes('weight')
+    );
+    if (weightField && Array.isArray(input.fieldValues)) {
+      const wFv = input.fieldValues.find((f) => f.categoryFieldId === weightField.id);
+      if (wFv?.valueNumber !== undefined && wFv?.valueNumber !== null && String(wFv.valueNumber).trim() !== '') {
+        const wNum = typeof wFv.valueNumber === 'number' ? wFv.valueNumber : parseFloat(String(wFv.valueNumber));
+        if (!isNaN(wNum) && wNum > 0) {
+          weightVal = wNum;
+        }
+      }
+    }
+    if (weightVal === null && weightField) {
+      const existingWFv = await prisma.productFieldValue.findUnique({
+        where: {
+          productId_categoryFieldId: {
+            productId: existingProduct.id,
+            categoryFieldId: weightField.id,
+          },
+        },
+      });
+      if (existingWFv?.valueNumber !== null && existingWFv?.valueNumber !== undefined) {
+        weightVal = existingWFv.valueNumber;
+      }
+    }
+
+    let purchasePriceVal: number | null = null;
+    let actualPurchasePriceVal: number | null = null;
+    const hasPurchasePriceInput = rawPurchasePrice !== undefined || rawPurchaseRate !== undefined;
+    const hasSellingPriceInput = rawSellingPrice !== undefined;
+
+    if (hasPurityField && purchaseRatePerGramVal !== null && weightVal !== null && weightVal > 0) {
+      const baseCost = weightVal * purchaseRatePerGramVal;
+      const makingCost = weightVal * (purchaseMakingChargesPerGramVal ?? 0);
+      const addPercent = additionalChargesVal ?? 0;
+      const addCostAmt = baseCost * (addPercent / 100);
+
+      purchasePriceVal = Math.round((baseCost + makingCost) * 100) / 100;
+      actualPurchasePriceVal = Math.round((baseCost + makingCost + addCostAmt) * 100) / 100;
+      if (additionalChargesVal === null) {
+        additionalChargesVal = 0;
+      }
+    } else if (rawPurchasePrice !== undefined && rawPurchasePrice !== null && String(rawPurchasePrice).trim() !== '') {
+      const num = typeof rawPurchasePrice === 'number' ? rawPurchasePrice : parseFloat(String(rawPurchasePrice));
+      if (isNaN(num) || num < 0) {
+        throw new Error('Purchase Price must be a valid non-negative number.');
+      }
+      purchasePriceVal = num;
+      if (additionalChargesVal === null) {
+        additionalChargesVal = 0;
+      }
+      actualPurchasePriceVal = Math.round((purchasePriceVal + (purchasePriceVal * additionalChargesVal / 100)) * 100) / 100;
+    }
+
+    // Selling price and margin parsing & auto calculation
+    let sellingPriceVal: number | null = null;
+    let marginVal: number | null = null;
+
+    if (rawSellingPrice !== undefined && rawSellingPrice !== null && String(rawSellingPrice).trim() !== '') {
+      const spNum = typeof rawSellingPrice === 'number' ? rawSellingPrice : parseFloat(String(rawSellingPrice));
+      if (isNaN(spNum) || spNum < 0) {
+        throw new Error('Selling Price must be a valid non-negative number.');
+      }
+      sellingPriceVal = Math.round(spNum * 100) / 100;
+    }
+
+    if (rawMargin !== undefined && rawMargin !== null && String(rawMargin).trim() !== '') {
+      const mNum = typeof rawMargin === 'number' ? rawMargin : parseFloat(String(rawMargin));
+      if (isNaN(mNum)) {
+        throw new Error('Margin must be a valid number.');
+      }
+      marginVal = Math.round(mNum * 100) / 100;
+    }
+
+    // Two-way calculation if cost is available
+    if (sellingPriceVal !== null && marginVal === null && actualPurchasePriceVal !== null && actualPurchasePriceVal > 0) {
+      marginVal = Math.round(((sellingPriceVal - actualPurchasePriceVal) / actualPurchasePriceVal) * 100 * 100) / 100;
+    } else if (marginVal !== null && sellingPriceVal === null && actualPurchasePriceVal !== null && actualPurchasePriceVal > 0) {
+      sellingPriceVal = Math.round((actualPurchasePriceVal + (actualPurchasePriceVal * marginVal / 100)) * 100) / 100;
     }
 
     const inputMap = new Map<string, { valueText?: string | null; valueNumber?: number | null; valueBoolean?: boolean | null }>();
@@ -870,6 +1291,18 @@ export class ProductService {
       }
     }
 
+    const INTERNAL_SYSTEM_KEYS = [
+      'purchasePrice',
+      'purchaseRatePerGram',
+      'purchaseMakingChargesPerGram',
+      'additionalChargesPercentage',
+      'actualPurchasePrice',
+      'actualPurchasePriceCode',
+      'sellingPrice',
+      'marginPercentage',
+      'margin',
+    ];
+
     const fieldValuesToSave: Array<{
       categoryFieldId: string;
       valueText: string | null;
@@ -878,6 +1311,11 @@ export class ProductService {
     }> = [];
 
     for (const field of categoryFields) {
+      // Internal pricing fields are managed dedicatedly below
+      if (INTERNAL_SYSTEM_KEYS.includes(field.fieldKey)) {
+        continue;
+      }
+
       const userVal = inputMap.get(field.id);
       const parsedOpts = this.parseOptions(field.options) || [];
 
@@ -956,18 +1394,51 @@ export class ProductService {
 
     // Atomic transaction: update name, stockQuantity, replace field values
     await prisma.$transaction(async (tx) => {
-      // If purchase pricing was provided, ensure standard CategoryFields exist
-      if (purchasePriceVal !== null || additionalChargesVal !== null) {
-        const purchaseFields = await this.ensurePurchaseCategoryFields(tx, existingProduct.categoryId);
+      // Ensure pricing fields exist and populate them
+      if (
+        purchasePriceVal !== null ||
+        actualPurchasePriceVal !== null ||
+        purchaseRatePerGramVal !== null ||
+        additionalChargesVal !== null ||
+        sellingPriceVal !== null ||
+        marginVal !== null
+      ) {
+        const pricingFields = await this.ensurePurchaseCategoryFields(tx, existingProduct.categoryId);
         const actualPurchasePriceCodeVal = generateActualPurchasePriceCode(actualPurchasePriceVal);
 
+        // Append or update purchaseRatePerGram
+        const rpIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pricingFields.purchaseRatePerGramField.id);
+        if (rpIdx >= 0) {
+          fieldValuesToSave[rpIdx].valueNumber = purchaseRatePerGramVal;
+        } else if (purchaseRatePerGramVal !== null) {
+          fieldValuesToSave.push({
+            categoryFieldId: pricingFields.purchaseRatePerGramField.id,
+            valueText: null,
+            valueNumber: purchaseRatePerGramVal,
+            valueBoolean: null,
+          });
+        }
+
+        // Append or update purchaseMakingChargesPerGram
+        const mpIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pricingFields.purchaseMakingChargesPerGramField.id);
+        if (mpIdx >= 0) {
+          fieldValuesToSave[mpIdx].valueNumber = purchaseMakingChargesPerGramVal;
+        } else if (purchaseMakingChargesPerGramVal !== null) {
+          fieldValuesToSave.push({
+            categoryFieldId: pricingFields.purchaseMakingChargesPerGramField.id,
+            valueText: null,
+            valueNumber: purchaseMakingChargesPerGramVal,
+            valueBoolean: null,
+          });
+        }
+
         // Append or update purchasePrice
-        const pIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === purchaseFields.purchasePriceField.id);
+        const pIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pricingFields.purchasePriceField.id);
         if (pIdx >= 0) {
           fieldValuesToSave[pIdx].valueNumber = purchasePriceVal;
-        } else {
+        } else if (purchasePriceVal !== null) {
           fieldValuesToSave.push({
-            categoryFieldId: purchaseFields.purchasePriceField.id,
+            categoryFieldId: pricingFields.purchasePriceField.id,
             valueText: null,
             valueNumber: purchasePriceVal,
             valueBoolean: null,
@@ -975,12 +1446,12 @@ export class ProductService {
         }
 
         // Append or update additionalChargesPercentage
-        const cIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === purchaseFields.additionalChargesField.id);
+        const cIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pricingFields.additionalChargesField.id);
         if (cIdx >= 0) {
           fieldValuesToSave[cIdx].valueNumber = additionalChargesVal;
-        } else {
+        } else if (additionalChargesVal !== null) {
           fieldValuesToSave.push({
-            categoryFieldId: purchaseFields.additionalChargesField.id,
+            categoryFieldId: pricingFields.additionalChargesField.id,
             valueText: null,
             valueNumber: additionalChargesVal,
             valueBoolean: null,
@@ -988,12 +1459,12 @@ export class ProductService {
         }
 
         // Append or update actualPurchasePrice
-        const aIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === purchaseFields.actualPurchasePriceField.id);
+        const aIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pricingFields.actualPurchasePriceField.id);
         if (aIdx >= 0) {
           fieldValuesToSave[aIdx].valueNumber = actualPurchasePriceVal;
-        } else {
+        } else if (actualPurchasePriceVal !== null) {
           fieldValuesToSave.push({
-            categoryFieldId: purchaseFields.actualPurchasePriceField.id,
+            categoryFieldId: pricingFields.actualPurchasePriceField.id,
             valueText: null,
             valueNumber: actualPurchasePriceVal,
             valueBoolean: null,
@@ -1001,14 +1472,40 @@ export class ProductService {
         }
 
         // Append or update actualPurchasePriceCode
-        const codeIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === purchaseFields.actualPurchasePriceCodeField.id);
+        const codeIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pricingFields.actualPurchasePriceCodeField.id);
         if (codeIdx >= 0) {
           fieldValuesToSave[codeIdx].valueText = actualPurchasePriceCodeVal;
-        } else {
+        } else if (actualPurchasePriceCodeVal !== null) {
           fieldValuesToSave.push({
-            categoryFieldId: purchaseFields.actualPurchasePriceCodeField.id,
+            categoryFieldId: pricingFields.actualPurchasePriceCodeField.id,
             valueText: actualPurchasePriceCodeVal,
             valueNumber: null,
+            valueBoolean: null,
+          });
+        }
+
+        // Append or update sellingPrice
+        const sIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pricingFields.sellingPriceField.id);
+        if (sIdx >= 0) {
+          fieldValuesToSave[sIdx].valueNumber = sellingPriceVal;
+        } else if (sellingPriceVal !== null) {
+          fieldValuesToSave.push({
+            categoryFieldId: pricingFields.sellingPriceField.id,
+            valueText: null,
+            valueNumber: sellingPriceVal,
+            valueBoolean: null,
+          });
+        }
+
+        // Append or update marginPercentage
+        const mIdx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pricingFields.marginPercentageField.id);
+        if (mIdx >= 0) {
+          fieldValuesToSave[mIdx].valueNumber = marginVal;
+        } else if (marginVal !== null) {
+          fieldValuesToSave.push({
+            categoryFieldId: pricingFields.marginPercentageField.id,
+            valueText: null,
+            valueNumber: marginVal,
             valueBoolean: null,
           });
         }
@@ -1017,10 +1514,26 @@ export class ProductService {
         const purchaseFields = await tx.categoryField.findMany({
           where: {
             categoryId: existingProduct.categoryId,
-            fieldKey: { in: ['purchasePrice', 'additionalChargesPercentage', 'actualPurchasePrice', 'actualPurchasePriceCode'] },
+            fieldKey: { in: ['purchasePrice', 'purchaseRatePerGram', 'purchaseMakingChargesPerGram', 'additionalChargesPercentage', 'actualPurchasePrice', 'actualPurchasePriceCode'] },
           },
         });
         for (const pf of purchaseFields) {
+          const idx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pf.id);
+          if (idx >= 0) {
+            fieldValuesToSave[idx].valueNumber = null;
+            fieldValuesToSave[idx].valueText = null;
+          }
+        }
+      }
+
+      if (hasSellingPriceInput && sellingPriceVal === null) {
+        const pricingFields = await tx.categoryField.findMany({
+          where: {
+            categoryId: existingProduct.categoryId,
+            fieldKey: { in: ['sellingPrice', 'marginPercentage'] },
+          },
+        });
+        for (const pf of pricingFields) {
           const idx = fieldValuesToSave.findIndex((fv) => fv.categoryFieldId === pf.id);
           if (idx >= 0) {
             fieldValuesToSave[idx].valueNumber = null;
@@ -1034,6 +1547,8 @@ export class ProductService {
         data: {
           name,
           stockQuantity,
+          ...(input.vendorId !== undefined ? { vendorId: input.vendorId || null } : {}),
+          ...(input.purchaseDate !== undefined ? { purchaseDate: input.purchaseDate?.trim() || null } : {}),
         },
       });
 
@@ -1051,6 +1566,186 @@ export class ProductService {
             valueNumber: fv.valueNumber,
             valueBoolean: fv.valueBoolean,
           })),
+        });
+      }
+
+      // Synchronize Purchase History entry for this product
+      const vendorIdToUse =
+        input.vendorId !== undefined ? (input.vendorId || null) : existingProduct.vendorId;
+      const purchaseDateToUse =
+        (input.purchaseDate !== undefined
+          ? input.purchaseDate?.trim() || null
+          : existingProduct.purchaseDate) || new Date().toISOString().split('T')[0];
+      const effectiveCost = actualPurchasePriceVal ?? purchasePriceVal ?? 0;
+      const qty = stockQuantity > 0 ? stockQuantity : 1;
+      const itemTotal = Math.round(qty * effectiveCost * 100) / 100;
+
+      const existingPurchaseItems = await tx.purchaseItem.findMany({
+        where: { productId: input.id },
+        include: { purchase: true },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      if (existingPurchaseItems.length > 0) {
+        const primaryItem = existingPurchaseItems[0];
+
+        if (vendorIdToUse) {
+          if (
+            primaryItem.purchase.vendorId === vendorIdToUse &&
+            primaryItem.purchase.purchaseDate === purchaseDateToUse
+          ) {
+            // Case 1: Same vendor and date — update the purchase item in place
+            await tx.purchaseItem.update({
+              where: { id: primaryItem.id },
+              data: {
+                productName: name,
+                quantityBought: qty,
+                unitCost: effectiveCost,
+                totalAmount: itemTotal,
+              },
+            });
+
+            // Recalculate purchase order totalAmount
+            const items = await tx.purchaseItem.findMany({
+              where: { purchaseId: primaryItem.purchaseId },
+            });
+            const newOrderTotal = Math.round(
+              items.reduce(
+                (sum, it) => sum + (it.id === primaryItem.id ? itemTotal : it.totalAmount),
+                0
+              ) * 100
+            ) / 100;
+            await tx.purchase.update({
+              where: { id: primaryItem.purchaseId },
+              data: { totalAmount: newOrderTotal },
+            });
+          } else {
+            // Case 2: Vendor or date changed — move item to target purchase order
+            let targetPurchase = await tx.purchase.findUnique({
+              where: {
+                companyId_vendorId_purchaseDate: {
+                  companyId,
+                  vendorId: vendorIdToUse,
+                  purchaseDate: purchaseDateToUse,
+                },
+              },
+            });
+
+            if (!targetPurchase) {
+              targetPurchase = await tx.purchase.create({
+                data: {
+                  companyId,
+                  vendorId: vendorIdToUse,
+                  purchaseDate: purchaseDateToUse,
+                  totalAmount: itemTotal,
+                  notes: JSON.stringify({ status: 'UNPAID', method: null, note: null }),
+                },
+              });
+            }
+
+            await tx.purchaseItem.update({
+              where: { id: primaryItem.id },
+              data: {
+                purchaseId: targetPurchase.id,
+                productName: name,
+                quantityBought: qty,
+                unitCost: effectiveCost,
+                totalAmount: itemTotal,
+              },
+            });
+
+            // Recalculate target purchase total
+            const targetItems = await tx.purchaseItem.findMany({
+              where: { purchaseId: targetPurchase.id },
+            });
+            const newTargetTotal = Math.round(
+              targetItems.reduce((sum, it) => sum + it.totalAmount, 0) * 100
+            ) / 100;
+            await tx.purchase.update({
+              where: { id: targetPurchase.id },
+              data: { totalAmount: newTargetTotal },
+            });
+
+            // Recalculate or clean up old purchase order
+            const oldPurchaseId = primaryItem.purchaseId;
+            const remainingOldItems = await tx.purchaseItem.findMany({
+              where: { purchaseId: oldPurchaseId },
+            });
+            if (remainingOldItems.length === 0) {
+              await tx.purchase.delete({ where: { id: oldPurchaseId } });
+            } else {
+              const oldTotal = Math.round(
+                remainingOldItems.reduce((sum, it) => sum + it.totalAmount, 0) * 100
+              ) / 100;
+              await tx.purchase.update({
+                where: { id: oldPurchaseId },
+                data: { totalAmount: oldTotal },
+              });
+            }
+          }
+        } else {
+          // Case 3: Vendor cleared from product — remove purchase item and adjust purchase total
+          await tx.purchaseItem.delete({ where: { id: primaryItem.id } });
+          const oldPurchaseId = primaryItem.purchaseId;
+          const remainingOldItems = await tx.purchaseItem.findMany({
+            where: { purchaseId: oldPurchaseId },
+          });
+          if (remainingOldItems.length === 0) {
+            await tx.purchase.delete({ where: { id: oldPurchaseId } });
+          } else {
+            const oldTotal = Math.round(
+              remainingOldItems.reduce((sum, it) => sum + it.totalAmount, 0) * 100
+            ) / 100;
+            await tx.purchase.update({
+              where: { id: oldPurchaseId },
+              data: { totalAmount: oldTotal },
+            });
+          }
+        }
+      } else if (vendorIdToUse) {
+        // Case 4: Product previously had no purchase item, but now has vendor — create initial purchase
+        let purchase = await tx.purchase.findUnique({
+          where: {
+            companyId_vendorId_purchaseDate: {
+              companyId,
+              vendorId: vendorIdToUse,
+              purchaseDate: purchaseDateToUse,
+            },
+          },
+        });
+
+        if (!purchase) {
+          purchase = await tx.purchase.create({
+            data: {
+              companyId,
+              vendorId: vendorIdToUse,
+              purchaseDate: purchaseDateToUse,
+              totalAmount: itemTotal,
+              notes: JSON.stringify({ status: 'UNPAID', method: null, note: null }),
+            },
+          });
+        }
+
+        await tx.purchaseItem.create({
+          data: {
+            purchaseId: purchase.id,
+            productId: input.id,
+            productName: name,
+            barcode: existingProduct.barcode,
+            categoryName: existingProduct.category.name,
+            quantityBought: qty,
+            unitCost: effectiveCost,
+            totalAmount: itemTotal,
+          },
+        });
+
+        const items = await tx.purchaseItem.findMany({
+          where: { purchaseId: purchase.id },
+        });
+        const newTotal = Math.round(items.reduce((sum, it) => sum + it.totalAmount, 0) * 100) / 100;
+        await tx.purchase.update({
+          where: { id: purchase.id },
+          data: { totalAmount: newTotal },
         });
       }
     });

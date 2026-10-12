@@ -1,16 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from './hooks/useAuth';
 import { AppLayout, AppNavView } from './layouts/AppLayout';
+import { BillingPage } from './pages/BillingPage';
+import { BillsHistoryPage } from './pages/BillsHistoryPage';
 import { CategoryPage } from './pages/CategoryPage';
 import { LoginPage } from './pages/LoginPage';
 import { MetalRatesPage } from './pages/MetalRatesPage';
 import { ProductsPage } from './pages/ProductsPage';
+import { VendorsPage } from './pages/VendorsPage';
+import { PurchaseHistoryPage } from './pages/PurchaseHistoryPage';
 
 import { ToastProvider } from './context/ToastContext';
 
 const AppContent: React.FC = () => {
   const auth = useAuth();
-  const [currentView, setCurrentView] = useState<AppNavView>('products');
+  const [currentView, setCurrentView] = useState<AppNavView>('billing');
+
+  // Set default view based on user role
+  useEffect(() => {
+    if (auth.session) {
+      if (auth.session.role === 'BILLING_USER') {
+        setCurrentView('billing');
+      } else {
+        // Admin default view: Billing Terminal or Products
+        setCurrentView('billing');
+      }
+    }
+  }, [auth.session?.adminId, auth.session?.role]);
 
   // Initial session restoration state
   if (auth.loading) {
@@ -45,12 +61,26 @@ const AppContent: React.FC = () => {
       onLogout={auth.logout}
       loggingOut={auth.loggingOut}
     >
-      {currentView === 'products' ? (
+      {currentView === 'billing' ? (
+        <BillingPage
+          session={auth.session}
+          onNavigateToHistory={() => setCurrentView('bills-history')}
+        />
+      ) : currentView === 'bills-history' ? (
+        <BillsHistoryPage
+          session={auth.session}
+          onNavigateToBilling={() => setCurrentView('billing')}
+        />
+      ) : currentView === 'products' ? (
         <ProductsPage session={auth.session} />
       ) : currentView === 'categories' ? (
         <CategoryPage session={auth.session} />
-      ) : (
+      ) : currentView === 'rates' ? (
         <MetalRatesPage session={auth.session} />
+      ) : currentView === 'vendors' ? (
+        <VendorsPage session={auth.session} />
+      ) : (
+        <PurchaseHistoryPage session={auth.session} />
       )}
     </AppLayout>
   );

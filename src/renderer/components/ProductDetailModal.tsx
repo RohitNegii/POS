@@ -130,6 +130,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <span className="text-stone-500 font-medium">Last Updated:</span>
               <div className="font-mono text-stone-600 mt-0.5">{formatDate(product.updatedAt)}</div>
             </div>
+            {product.vendorName && (
+              <div>
+                <span className="text-stone-500 font-medium">Purchased From Vendor:</span>
+                <div className="font-semibold text-stone-800 mt-0.5">
+                  {product.vendorName} {product.vendorPhone ? `(${product.vendorPhone})` : ''}
+                </div>
+              </div>
+            )}
+            {product.purchaseDate && (
+              <div>
+                <span className="text-stone-500 font-medium">Purchase Date:</span>
+                <div className="font-semibold text-stone-800 mt-0.5">{product.purchaseDate}</div>
+              </div>
+            )}
           </div>
 
           {/* Gold / Silver Calculated Pricing Card */}
@@ -207,9 +221,23 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           {/* Purchase Pricing Details Card */}
           {(product.purchasePrice !== null && product.purchasePrice !== undefined) ||
           (product.actualPurchasePrice !== null && product.actualPurchasePrice !== undefined) ||
-          product.fieldValues?.some((fv) => fv.categoryField?.fieldKey === 'purchasePrice' && fv.valueNumber !== null) ? (() => {
+          (product.purchaseRatePerGram !== null && product.purchaseRatePerGram !== undefined) ||
+          product.fieldValues?.some((fv) => fv.categoryField?.fieldKey === 'purchasePrice' && fv.valueNumber !== null) ||
+          product.fieldValues?.some((fv) => fv.categoryField?.fieldKey === 'purchaseRatePerGram' && fv.valueNumber !== null) ? (() => {
+            const hasPurity = Boolean(
+              product.fieldValues?.some(
+                (fv) =>
+                  (fv.categoryField?.fieldKey === 'purity' || fv.categoryField?.name?.toLowerCase().includes('purity')) &&
+                  fv.valueText
+              )
+            );
+
             const pVal = product.purchasePrice ??
               product.fieldValues?.find((fv) => fv.categoryField?.fieldKey === 'purchasePrice')?.valueNumber;
+            const rpVal = product.purchaseRatePerGram ??
+              product.fieldValues?.find((fv) => fv.categoryField?.fieldKey === 'purchaseRatePerGram')?.valueNumber;
+            const mpVal = product.purchaseMakingChargesPerGram ??
+              product.fieldValues?.find((fv) => fv.categoryField?.fieldKey === 'purchaseMakingChargesPerGram')?.valueNumber;
             const cVal = product.additionalChargesPercentage ??
               product.fieldValues?.find((fv) => fv.categoryField?.fieldKey === 'additionalChargesPercentage')?.valueNumber;
             const aVal = product.actualPurchasePrice ??
@@ -217,6 +245,100 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             const codeVal = product.actualPurchasePriceCode ??
               product.fieldValues?.find((fv) => fv.categoryField?.fieldKey === 'actualPurchasePriceCode')?.valueText ??
               generateActualPurchasePriceCode(aVal);
+
+            const weightFv = product.fieldValues?.find(
+              (fv) =>
+                fv.categoryField?.fieldKey === 'weight' ||
+                fv.categoryField?.fieldKey === 'designweight' ||
+                fv.categoryField?.name?.toLowerCase().includes('weight')
+            );
+            const wVal = weightFv?.valueNumber !== null && weightFv?.valueNumber !== undefined
+              ? Number(weightFv.valueNumber)
+              : parseFloat(String(weightFv?.valueText || ''));
+
+            if (hasPurity && rpVal !== null && rpVal !== undefined) {
+              const weight = !isNaN(wVal) && wVal > 0 ? wVal : 0;
+              const rate = Number(rpVal);
+              const making = mpVal !== null && mpVal !== undefined ? Number(mpVal) : 0;
+              const overheadPct = cVal !== null && cVal !== undefined ? Number(cVal) : 0;
+
+              const baseMetal = Math.round(weight * rate * 100) / 100;
+              const supplierMaking = Math.round(weight * making * 100) / 100;
+              const overheadAmt = Math.round(baseMetal * (overheadPct / 100) * 100) / 100;
+              const landedCost = aVal !== null && aVal !== undefined ? Number(aVal) : Math.round((baseMetal + supplierMaking + overheadAmt) * 100) / 100;
+
+              return (
+                <div className="rounded-xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded bg-amber-100 text-amber-900 font-bold text-xs">
+                        ₹
+                      </span>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-stone-700">
+                        Jewellery Inward & Purchase Breakdown
+                      </h4>
+                    </div>
+                    <span className="rounded bg-amber-100/70 border border-amber-300 px-2 py-0.5 text-[10px] font-semibold text-amber-900 font-mono">
+                      Weight: {weight > 0 ? `${weight}g` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs font-mono">
+                    <div className="rounded-lg bg-white p-2.5 border border-cream-200 shadow-xs">
+                      <span className="text-[10px] text-stone-500 block uppercase font-sans font-semibold">Purchase Rate</span>
+                      <span className="font-bold text-stone-900 text-sm">
+                        ₹{rate.toLocaleString()}
+                      </span>
+                      <span className="text-[9px] text-stone-500 block mt-0.5 font-sans">per gram</span>
+                    </div>
+
+                    <div className="rounded-lg bg-white p-2.5 border border-cream-200 shadow-xs">
+                      <span className="text-[10px] text-stone-500 block uppercase font-sans font-semibold">Supplier Making</span>
+                      <span className="font-bold text-stone-900 text-sm">
+                        ₹{making.toLocaleString()}
+                      </span>
+                      <span className="text-[9px] text-stone-500 block mt-0.5 font-sans">per gram</span>
+                    </div>
+
+                    <div className="rounded-lg bg-white p-2.5 border border-cream-200 shadow-xs">
+                      <span className="text-[10px] text-stone-500 block uppercase font-sans font-semibold">Base Metal Cost</span>
+                      <span className="font-bold text-amber-900 text-sm">
+                        ₹{baseMetal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[9px] text-stone-500 block mt-0.5 font-sans">{weight}g × ₹{rate}</span>
+                    </div>
+
+                    <div className="rounded-lg bg-white p-2.5 border border-cream-200 shadow-xs">
+                      <span className="text-[10px] text-stone-500 block uppercase font-sans font-semibold">Supplier Making Cost</span>
+                      <span className="font-bold text-amber-900 text-sm">
+                        ₹{supplierMaking.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[9px] text-stone-500 block mt-0.5 font-sans">{weight}g × ₹{making}</span>
+                    </div>
+
+                    <div className="rounded-lg bg-white p-2.5 border border-cream-200 shadow-xs">
+                      <span className="text-[10px] text-stone-500 block uppercase font-sans font-semibold">Additional Cost</span>
+                      <span className="font-bold text-stone-900 text-sm">
+                        {overheadPct}%
+                      </span>
+                      <span className="text-[9px] text-stone-500 block mt-0.5 font-sans">
+                        +₹{overheadAmt.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="rounded-lg bg-amber-100/90 p-2.5 border border-amber-300 shadow-xs">
+                      <span className="text-[10px] text-amber-800 block uppercase font-sans font-semibold">Landed Cost</span>
+                      <span className="font-bold text-amber-950 text-sm">
+                        ₹{landedCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[9px] text-amber-700 block mt-0.5 font-sans font-mono tracking-wider font-bold">
+                        Tag: {codeVal || '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
 
             return (
               <div className="rounded-xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
@@ -280,10 +402,74 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             );
           })() : null}
 
+          {/* Selling Price & Margin Card (Non-Jewellery) */}
+          {!product.calculatedJewelleryPrice && ((product.sellingPrice !== null && product.sellingPrice !== undefined) || product.fieldValues?.some(fv => fv.categoryField?.fieldKey === 'sellingPrice' && fv.valueNumber !== null)) && (() => {
+            const sVal = product.sellingPrice ?? product.fieldValues?.find(fv => fv.categoryField?.fieldKey === 'sellingPrice')?.valueNumber;
+            const aVal = product.actualPurchasePrice ?? product.fieldValues?.find(fv => fv.categoryField?.fieldKey === 'actualPurchasePrice')?.valueNumber;
+            const mVal = product.marginPercentage ?? (sVal && aVal && aVal > 0 ? Math.round(((sVal - aVal) / aVal) * 100 * 100) / 100 : null);
+            const profit = sVal !== null && sVal !== undefined && aVal !== null && aVal !== undefined ? sVal - aVal : null;
+
+            return (
+              <div className="rounded-xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100 text-emerald-900 font-bold text-xs">
+                      ₹
+                    </span>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-stone-700">
+                      Selling Price & Margin
+                    </h4>
+                  </div>
+                  <span className="rounded bg-emerald-100/70 border border-emerald-300 px-2 py-0.5 text-[10px] font-semibold text-emerald-900 font-mono">
+                    Retail Pricing
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
+                  <div className="rounded-lg bg-white p-3 border border-cream-200 shadow-xs">
+                    <span className="text-[10px] text-stone-500 block uppercase font-sans font-semibold">Selling Price</span>
+                    <span className="font-bold text-stone-900 text-sm">
+                      ₹{sVal !== null && sVal !== undefined ? Number(sVal).toLocaleString() : '—'}
+                    </span>
+                    <span className="text-[9px] text-stone-500 block mt-0.5 font-sans">Customer retail price</span>
+                  </div>
+
+                  <div className="rounded-lg bg-white p-3 border border-cream-200 shadow-xs">
+                    <span className="text-[10px] text-stone-500 block uppercase font-sans font-semibold">Profit Margin</span>
+                    <span className={`font-bold text-sm ${mVal !== null && mVal >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {mVal !== null && mVal !== undefined ? `${mVal >= 0 ? `+${mVal}` : mVal}%` : '—'}
+                    </span>
+                    <span className="text-[9px] text-stone-500 block mt-0.5 font-sans">Markup on actual cost</span>
+                  </div>
+
+                  <div className="rounded-lg bg-white p-3 border border-cream-200 shadow-xs">
+                    <span className="text-[10px] text-stone-500 block uppercase font-sans font-semibold">Net Profit per Unit</span>
+                    <span className={`font-bold text-sm ${profit !== null && profit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {profit !== null ? `₹${profit.toFixed(2)}` : '—'}
+                    </span>
+                    <span className="text-[9px] text-stone-500 block mt-0.5 font-sans">Selling price - Cost price</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Dynamic Attributes */}
           {(() => {
+            const INTERNAL_PRICING_KEYS = [
+              'purchasePrice',
+              'purchaseRatePerGram',
+              'purchaseMakingChargesPerGram',
+              'additionalChargesPercentage',
+              'actualPurchasePrice',
+              'actualPurchasePriceCode',
+              'sellingPrice',
+              'marginPercentage',
+              'margin',
+            ];
+
             const displayFieldValues = (product.fieldValues || []).filter(
-              (fv) => !['purchasePrice', 'additionalChargesPercentage', 'actualPurchasePrice', 'actualPurchasePriceCode'].includes(fv.categoryField?.fieldKey || '')
+              (fv) => !INTERNAL_PRICING_KEYS.includes(fv.categoryField?.fieldKey || '')
             );
 
             return (

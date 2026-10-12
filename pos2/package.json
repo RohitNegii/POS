@@ -1,0 +1,35 @@
+{
+  "name": "pos2-retail-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "POS 2 Desktop Application - Multi-Company Login, Categories, and Buyers Foundation",
+  "main": "dist-electron/main/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.cjs",
+    "dev:renderer": "vite",
+    "dev:main": "tsc -p tsconfig.main.json",
+    "build": "npm run prisma:generate && tsc -p tsconfig.renderer.json && vite build && tsc -p tsconfig.main.json",
+    "prisma:generate": "prisma generate",
+    "prisma:seed": "node scripts/seed.cjs",
+    "typecheck": "tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.main.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "cross-env": "^7.0.3",
+    "electron": "^34.3.0",
+    "postcss": "^8.5.3",
+    "prisma": "^6.5.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0"
+  }
+}

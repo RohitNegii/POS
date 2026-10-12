@@ -168,9 +168,17 @@ export interface ProductDto {
   calculatedJewelleryPrice?: JewelleryPriceCalculationResult | null;
   pricingError?: string | null;
   purchasePrice?: number | null;
+  purchaseRatePerGram?: number | null;
+  purchaseMakingChargesPerGram?: number | null;
   additionalChargesPercentage?: number | null;
   actualPurchasePrice?: number | null;
   actualPurchasePriceCode?: string | null;
+  sellingPrice?: number | null;
+  marginPercentage?: number | null;
+  vendorId?: string | null;
+  vendorName?: string | null;
+  vendorPhone?: string | null;
+  purchaseDate?: string | null;
 }
 
 export type MetalType = 'GOLD' | 'SILVER';
@@ -239,9 +247,15 @@ export interface CreateProductRequest {
   stockQuantity?: number;
   fieldValues: ProductFieldValueInput[];
   purchasePrice?: number | null;
+  purchaseRatePerGram?: number | null;
+  purchaseMakingChargesPerGram?: number | null;
   additionalChargesPercentage?: number | null;
   actualPurchasePrice?: number | null;
   actualPurchasePriceCode?: string | null;
+  sellingPrice?: number | null;
+  marginPercentage?: number | null;
+  vendorId?: string | null;
+  purchaseDate?: string | null;
 }
 
 export interface UpdateProductRequest {
@@ -250,9 +264,15 @@ export interface UpdateProductRequest {
   stockQuantity?: number;
   fieldValues: ProductFieldValueInput[];
   purchasePrice?: number | null;
+  purchaseRatePerGram?: number | null;
+  purchaseMakingChargesPerGram?: number | null;
   additionalChargesPercentage?: number | null;
   actualPurchasePrice?: number | null;
   actualPurchasePriceCode?: string | null;
+  sellingPrice?: number | null;
+  marginPercentage?: number | null;
+  vendorId?: string | null;
+  purchaseDate?: string | null;
 }
 
 export interface ListProductsFilter {
@@ -290,6 +310,200 @@ export interface PosDesktopApi {
   saveDailyMetalRates: (input: SaveDailyRatesRequest) => Promise<IpcResult<CurrentMetalRatesDto>>;
   getMetalRateHistory: () => Promise<IpcResult<MetalRateHistoryItemDto[]>>;
   calculateJewelleryPrice: (input: JewelleryCalculationInput) => Promise<IpcResult<JewelleryPriceCalculationResult>>;
-  printBarcode: (productId: string) => Promise<IpcResult<{ printed: boolean }>>;
+  printBarcode: (input: string | { html: string; widthMm: number; heightMm: number }) => Promise<IpcResult<{ printed: boolean }>>;
+  scanBillingProduct: (barcode: string) => Promise<IpcResult<ScannedProductDto>>;
+  searchBillingProducts: (query?: string) => Promise<IpcResult<ScannedProductDto[]>>;
+  createBill: (input: CreateBillRequest) => Promise<IpcResult<BillDto>>;
+  listBills: (filter?: ListBillsFilter) => Promise<IpcResult<BillDto[]>>;
+  getBillById: (id: string) => Promise<IpcResult<BillDto>>;
+  listVendors: (search?: string) => Promise<IpcResult<VendorDto[]>>;
+  createVendor: (input: CreateVendorRequest) => Promise<IpcResult<VendorDto>>;
+  updateVendor: (input: UpdateVendorRequest) => Promise<IpcResult<VendorDto>>;
+  getVendorById: (id: string) => Promise<IpcResult<VendorDto>>;
+  deleteVendor: (id: string) => Promise<IpcResult<{ id: string; name: string }>>;
+  listPurchases: (filter?: ListPurchasesFilter) => Promise<IpcResult<PurchaseDto[]>>;
+  createPurchase: (input: CreatePurchaseRequest) => Promise<IpcResult<PurchaseDto>>;
+  updatePurchasePayment: (input: UpdatePurchasePaymentRequest) => Promise<IpcResult<PurchaseDto>>;
+  deletePurchase: (id: string) => Promise<IpcResult<{ id: string }>>;
+}
+
+export interface ScannedProductDto {
+  id: string;
+  companyId: string;
+  companyName: string;
+  companyCode: string;
+  categoryId: string;
+  categoryName: string;
+  name: string;
+  barcode: string;
+  stockQuantity: number;
+  unitPrice: number;
+  priceType: 'JEWELLERY_DYNAMIC' | 'FIXED' | 'PER_METER' | 'CUSTOM';
+  pricingBreakdown: string;
+  details?: Record<string, any>;
+}
+
+export interface CreateBillItemInput {
+  productId?: string;
+  companyId: string;
+  companyName: string;
+  barcode: string;
+  productName: string;
+  categoryName?: string;
+  unitPrice: number;
+  discountPercentage?: number;
+  discountAmount?: number;
+  netUnitPrice?: number;
+  quantity: number;
+  detailsJson?: string;
+}
+
+export interface CreateBillRequest {
+  customerName?: string;
+  customerPhone?: string;
+  paymentMethod?: 'CASH' | 'UPI' | 'CARD' | 'SPLIT';
+  discountPercentage?: number;
+  discount?: number;
+  tax?: number;
+  notes?: string;
+  items: CreateBillItemInput[];
+}
+
+export interface BillItemDto {
+  id: string;
+  billId: string;
+  productId: string | null;
+  companyId: string;
+  companyName: string;
+  barcode: string;
+  productName: string;
+  categoryName: string | null;
+  unitPrice: number;
+  discountPercentage?: number;
+  discountAmount?: number;
+  netUnitPrice?: number;
+  quantity: number;
+  totalPrice: number;
+  detailsJson: string | null;
+  createdAt: string;
+}
+
+export interface CompanyBreakdownDto {
+  companyId: string;
+  companyName: string;
+  itemCount: number;
+  totalQuantity: number;
+  subtotal: number;
+}
+
+export interface BillDto {
+  id: string;
+  invoiceNumber: string;
+  billingUserId: string | null;
+  billingUserName: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  subtotal: number;
+  discountPercentage?: number;
+  discount: number;
+  tax: number;
+  totalAmount: number;
+  paymentMethod: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: BillItemDto[];
+  companyBreakdowns?: CompanyBreakdownDto[];
+}
+
+export interface ListBillsFilter {
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface VendorDto {
+  id: string;
+  companyId: string;
+  name: string;
+  phoneNumber?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  purchasesCount?: number;
+  totalPurchasedAmount?: number;
+}
+
+export interface CreateVendorRequest {
+  name: string;
+  phoneNumber?: string | null;
+}
+
+export interface UpdateVendorRequest {
+  id: string;
+  name: string;
+  phoneNumber?: string | null;
+}
+
+export type PurchasePaymentStatus = 'PAID' | 'UNPAID';
+export type PurchasePaymentMethod = 'CASH' | 'ONLINE';
+
+export interface PurchaseItemDto {
+  id: string;
+  purchaseId: string;
+  productId: string | null;
+  productName: string;
+  barcode: string;
+  categoryName: string | null;
+  quantityBought: number;
+  currentStock: number;
+  unitCost: number;
+  totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseDto {
+  id: string;
+  companyId: string;
+  vendorId: string;
+  vendorName: string;
+  vendorPhone?: string | null;
+  purchaseDate: string; // 'YYYY-MM-DD'
+  totalAmount: number;
+  totalProductsCount: number;
+  totalUnitsBought: number;
+  paymentStatus: PurchasePaymentStatus;
+  paymentMethod?: PurchasePaymentMethod | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: PurchaseItemDto[];
+}
+
+export interface CreatePurchaseRequest {
+  vendorId: string;
+  productId: string;
+  quantityBought: number;
+  unitCost: number;
+  purchaseDate?: string;
+  paymentStatus?: PurchasePaymentStatus;
+  paymentMethod?: PurchasePaymentMethod | null;
+  notes?: string;
+}
+
+export interface UpdatePurchasePaymentRequest {
+  id: string;
+  paymentStatus: PurchasePaymentStatus;
+  paymentMethod?: PurchasePaymentMethod | null;
+  notes?: string;
+}
+
+export interface ListPurchasesFilter {
+  vendorId?: string;
+  productId?: string;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
 }
 

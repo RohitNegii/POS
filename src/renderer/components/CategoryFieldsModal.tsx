@@ -43,6 +43,20 @@ export const CategoryFieldsModal: React.FC<CategoryFieldsModalProps> = ({
   } = useCategoryFields(isOpen ? category.id : null);
   const { showError, showSuccess } = useToast();
 
+  const INTERNAL_PRICING_KEYS = [
+    'purchasePrice',
+    'purchaseRatePerGram',
+    'purchaseMakingChargesPerGram',
+    'additionalChargesPercentage',
+    'actualPurchasePrice',
+    'actualPurchasePriceCode',
+    'sellingPrice',
+    'marginPercentage',
+    'margin',
+  ];
+
+  const visibleFields = fields.filter((f) => !INTERNAL_PRICING_KEYS.includes(f.fieldKey));
+
   // Surface category fields errors via toast
   useEffect(() => {
     if (error) {
@@ -275,14 +289,14 @@ export const CategoryFieldsModal: React.FC<CategoryFieldsModalProps> = ({
 
         {/* Modal Body / Field List */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {loading && fields.length === 0 ? (
+          {loading && visibleFields.length === 0 ? (
             <div className="flex h-48 items-center justify-center text-xs text-stone-500">
               <div className="flex items-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-600 border-t-transparent" />
                 Loading fields for {category.name}...
               </div>
             </div>
-          ) : fields.length === 0 ? (
+          ) : visibleFields.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-cream-300 p-12 text-center bg-cream-50/50">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white border border-cream-200 text-stone-500 shadow-xs">
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -293,7 +307,7 @@ export const CategoryFieldsModal: React.FC<CategoryFieldsModalProps> = ({
                 No fields configured yet
               </h3>
               <p className="mt-1 text-xs text-stone-500 max-w-md">
-                Add attributes needed for products in <span className="text-stone-700 font-medium">{category.name}</span> (e.g. Product Name, Design, Colour, Size, Selling Price, Weight, etc.).
+                Add attributes needed for products in <span className="text-stone-700 font-medium">{category.name}</span> (e.g. Design, Colour, Size, Material, Weight, etc.).
               </p>
               <button
                 type="button"
@@ -317,7 +331,7 @@ export const CategoryFieldsModal: React.FC<CategoryFieldsModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-cream-100">
-                  {fields.map((field, idx) => (
+                  {visibleFields.map((field, idx) => (
                     <tr
                       key={field.id}
                       className="transition hover:bg-cream-50/50 group"
