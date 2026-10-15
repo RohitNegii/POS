@@ -8,6 +8,7 @@ export type AppNavView =
   | 'categories'
   | 'rates'
   | 'vendors'
+  | 'purchase-entry'
   | 'purchases';
 
 interface AppLayoutProps {
@@ -219,6 +220,33 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                   <div className="pt-2 px-2.5 text-[10px] font-bold uppercase tracking-wider text-stone-400">
                     Purchases & Vendors
                   </div>
+
+                  {/* Purchase Entry Navigation Button */}
+                  <button
+                    id="nav-purchase-entry"
+                    type="button"
+                    onClick={() => onNavigate('purchase-entry')}
+                    className={`w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition ${
+                      currentView === 'purchase-entry'
+                        ? 'border-amber-300 bg-white text-stone-900 shadow-sm'
+                        : 'border-transparent text-stone-600 hover:bg-cream-200/60 hover:text-stone-900'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <svg className="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.75}
+                          d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                      <span>Purchase Entry</span>
+                    </div>
+                    {currentView === 'purchase-entry' && (
+                      <span className="h-2 w-2 rounded-full bg-amber-600" />
+                    )}
+                  </button>
 
                   {/* Vendors / Buyers Navigation Button */}
                   <button

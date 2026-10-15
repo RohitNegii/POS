@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import type { AuthSessionPayload, ProductDto } from '../../shared/types/ipc';
 import { BarcodePrintModal } from '../components/BarcodePrintModal';
 import { ProductDetailModal } from '../components/ProductDetailModal';
-import { ProductFormModal } from '../components/ProductFormModal';
 import { useCategories } from '../hooks/useCategories';
 import { useProducts } from '../hooks/useProducts';
 import { formatDateTime } from '../utils/formatters';
@@ -11,10 +10,11 @@ import { useToast } from '../context/ToastContext';
 
 interface ProductsPageProps {
   session: AuthSessionPayload;
+  onNavigateToPurchaseEntry?: () => void;
 }
 
-export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
-  const { showError, showSuccess } = useToast();
+export const ProductsPage: React.FC<ProductsPageProps> = ({ session, onNavigateToPurchaseEntry }) => {
+  const { showError } = useToast();
   const { categories } = useCategories();
   const {
     products,
@@ -23,10 +23,13 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
     filter,
     setFilter,
     refreshProducts,
-    upsertProductInList,
-    deleteProduct,
     clearError,
   } = useProducts();
+
+  // Always refresh products catalog on mount so updates from Purchase Entry reflect immediately
+  useEffect(() => {
+    void refreshProducts();
+  }, [refreshProducts]);
 
   // Surface product errors via toast instead of inline banner
   useEffect(() => {
@@ -39,12 +42,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
   const [searchVal, setSearchVal] = useState<string>('');
   const [selectedCatFilter, setSelectedCatFilter] = useState<string>('');
 
-  // Modal States
-  const [isFormModalOpen, setIsFormModalOpen] = useState<boolean>(false);
-  const [editingProduct, setEditingProduct] = useState<ProductDto | null>(null);
+  // Modal States - View and Print only
   const [viewingProduct, setViewingProduct] = useState<ProductDto | null>(null);
   const [printingProduct, setPrintingProduct] = useState<ProductDto | null>(null);
-  const [productToDelete, setProductToDelete] = useState<ProductDto | null>(null);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,41 +64,8 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
     });
   };
 
-  const handleOpenAddModal = () => {
-    setEditingProduct(null);
-    clearError();
-    setIsFormModalOpen(true);
-  };
-
-  const handleOpenEditModal = (prod: ProductDto) => {
-    setEditingProduct(prod);
-    clearError();
-    setIsFormModalOpen(true);
-  };
-
   const handlePrintBarcode = (prod: ProductDto) => {
     setPrintingProduct(prod);
-  };
-
-  const handleProductSaved = async (saved: ProductDto) => {
-    upsertProductInList(saved);
-    void refreshProducts();
-    showSuccess(`Product "${saved.name}" saved successfully.`);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!productToDelete) return;
-    const target = productToDelete;
-    setProductToDelete(null);
-    if (viewingProduct?.id === target.id) {
-      setViewingProduct(null);
-    }
-    const success = await deleteProduct(target.id);
-    if (success) {
-      showSuccess(`Product "${target.name}" removed from catalog.`);
-    } else {
-      showError(`Failed to delete product "${target.name}".`);
-    }
   };
 
   return (
@@ -116,17 +83,19 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
           </p>
         </div>
 
-        <button
-          id="btn-add-product"
-          type="button"
-          onClick={handleOpenAddModal}
-          className="inline-flex items-center gap-2 rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2.5 text-xs font-bold text-white shadow-sm shadow-amber-600/20 transition hover:shadow"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Product
-        </button>
+        {onNavigateToPurchaseEntry && (
+          <button
+            id="btn-goto-purchase-entry"
+            type="button"
+            onClick={onNavigateToPurchaseEntry}
+            className="inline-flex items-center gap-2 rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2.5 text-xs font-bold text-white shadow-sm shadow-amber-600/20 transition hover:shadow"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            Purchase Entry
+          </button>
+        )}
       </div>
 
       {/* Search & Filter Bar */}
@@ -203,15 +172,15 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
             <p className="mt-1 text-xs text-stone-500 max-w-sm">
               {searchVal || selectedCatFilter
                 ? 'No products match your current search or category filter.'
-                : 'No products registered yet. Click Add Product to add your first product.'}
+                : 'No products registered yet. New products are added through Purchase Entry.'}
             </p>
-            {!searchVal && !selectedCatFilter && (
+            {!searchVal && !selectedCatFilter && onNavigateToPurchaseEntry && (
               <button
                 type="button"
-                onClick={handleOpenAddModal}
+                onClick={onNavigateToPurchaseEntry}
                 className="mt-4 inline-flex items-center gap-2 rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:shadow transition"
               >
-                + Add First Product
+                Go to Purchase Entry
               </button>
             )}
           </div>
@@ -349,7 +318,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
                       {formatDateTime(prod.createdAt)}
                     </td>
 
-                    {/* Actions */}
+                    {/* Actions - View and Print only */}
                     <td className="px-6 py-4 text-right whitespace-nowrap space-x-1.5">
                       <button
                         type="button"
@@ -372,23 +341,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
                         </svg>
                         Print
                       </button>
-
-                      <button
-                        type="button"
-                        id={`btn-edit-${prod.id}`}
-                        onClick={() => handleOpenEditModal(prod)}
-                        className="inline-flex items-center gap-1 rounded-xl bg-cream-100 hover:bg-cream-200 border border-cream-300 px-2.5 py-1 text-xs font-semibold text-stone-700 transition"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        id={`btn-delete-${prod.id}`}
-                        onClick={() => setProductToDelete(prod)}
-                        className="inline-flex items-center gap-1 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1 text-xs font-semibold text-rose-700 transition"
-                      >
-                        Delete
-                      </button>
                     </td>
                   </tr>
                 ))}
@@ -398,36 +350,12 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
         )}
       </div>
 
-      {/* Product Form Modal (Add / Edit) */}
-      <ProductFormModal
-        isOpen={isFormModalOpen}
-        onClose={() => {
-          setIsFormModalOpen(false);
-          setEditingProduct(null);
-        }}
-        onSaved={handleProductSaved}
-        editingProduct={editingProduct}
-        session={session}
-        categories={categories}
-      />
-
       {/* Product Detail Modal (View / Print) */}
       <ProductDetailModal
         isOpen={Boolean(viewingProduct)}
         onClose={() => setViewingProduct(null)}
         product={viewingProduct}
         session={session}
-        onEdit={(prod) => {
-          setViewingProduct(null);
-          handleOpenEditModal(prod);
-        }}
-        onDelete={(id) => {
-          const prod = products.find((p) => p.id === id) || viewingProduct;
-          if (prod) {
-            setViewingProduct(null);
-            setProductToDelete(prod);
-          }
-        }}
         onPrintBarcode={() => {
           if (viewingProduct) {
             handlePrintBarcode(viewingProduct);
@@ -443,44 +371,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session }) => {
           isOpen={Boolean(printingProduct)}
           onClose={() => setPrintingProduct(null)}
         />
-      )}
-
-      {/* Product Delete Confirmation Modal */}
-      {productToDelete && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-stone-900/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-sm rounded-2xl border border-cream-300 bg-white p-6 shadow-2xl">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 border border-rose-200 mb-3.5">
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </div>
-            <h3 className="text-sm font-bold text-stone-900">
-              Confirm Product Removal
-            </h3>
-            <p className="mt-2 text-xs text-stone-600 leading-relaxed">
-              Are you sure you want to remove <span className="font-semibold text-stone-900">{productToDelete.name}</span> from the active catalog?
-              <br /><br />
-              This product will no longer appear in the catalog. Its historical data and barcode will be preserved for sales and order integrity.
-            </p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setProductToDelete(null)}
-                className="rounded-xl border border-cream-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-cream-100 shadow-xs transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                id="btn-confirm-delete-product"
-                onClick={handleConfirmDelete}
-                className="rounded-xl bg-rose-600 hover:bg-rose-500 px-4 py-2 text-xs font-bold text-white shadow-sm transition"
-              >
-                Delete Product
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

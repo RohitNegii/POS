@@ -260,6 +260,7 @@ export interface CreateProductRequest {
 
 export interface UpdateProductRequest {
   id: string;
+  categoryId?: string;
   name: string;
   stockQuantity?: number;
   fieldValues: ProductFieldValueInput[];
@@ -322,7 +323,9 @@ export interface PosDesktopApi {
   getVendorById: (id: string) => Promise<IpcResult<VendorDto>>;
   deleteVendor: (id: string) => Promise<IpcResult<{ id: string; name: string }>>;
   listPurchases: (filter?: ListPurchasesFilter) => Promise<IpcResult<PurchaseDto[]>>;
+  getPurchaseById: (id: string) => Promise<IpcResult<PurchaseDto | null>>;
   createPurchase: (input: CreatePurchaseRequest) => Promise<IpcResult<PurchaseDto>>;
+  updatePurchase: (input: UpdatePurchaseRequest) => Promise<IpcResult<PurchaseDto>>;
   updatePurchasePayment: (input: UpdatePurchasePaymentRequest) => Promise<IpcResult<PurchaseDto>>;
   deletePurchase: (id: string) => Promise<IpcResult<{ id: string }>>;
 }
@@ -445,8 +448,8 @@ export interface UpdateVendorRequest {
   phoneNumber?: string | null;
 }
 
-export type PurchasePaymentStatus = 'PAID' | 'UNPAID';
-export type PurchasePaymentMethod = 'CASH' | 'ONLINE';
+export type PurchasePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID';
+export type PurchasePaymentMethod = 'CASH' | 'ONLINE' | 'NO_PAYMENT' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'CREDIT';
 
 export interface PurchaseItemDto {
   id: string;
@@ -458,44 +461,83 @@ export interface PurchaseItemDto {
   quantityBought: number;
   currentStock: number;
   unitCost: number;
+  taxRate?: number;
+  taxAmount?: number;
   totalAmount: number;
+  detailsJson?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface PurchaseDto {
   id: string;
+  purchaseNumber: string;
   companyId: string;
   vendorId: string;
   vendorName: string;
   vendorPhone?: string | null;
+  invoiceNumber: string;
   purchaseDate: string; // 'YYYY-MM-DD'
+  paymentDate?: string | null; // 'YYYY-MM-DD'
+  subtotal: number;
+  taxAmount: number;
   totalAmount: number;
+  paidAmount: number;
+  balanceAmount: number;
   totalProductsCount: number;
   totalUnitsBought: number;
   paymentStatus: PurchasePaymentStatus;
-  paymentMethod?: PurchasePaymentMethod | null;
+  paymentMethod: PurchasePaymentMethod;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
   items: PurchaseItemDto[];
 }
 
-export interface CreatePurchaseRequest {
-  vendorId: string;
+export interface CreatePurchaseItemInput {
   productId: string;
   quantityBought: number;
   unitCost: number;
+  taxRate?: number;
+  taxAmount?: number;
+  totalAmount?: number;
+}
+
+export interface CreatePurchaseRequest {
+  vendorId: string;
+  invoiceNumber: string;
   purchaseDate?: string;
+  paymentDate?: string | null;
+  paymentMethod: PurchasePaymentMethod;
   paymentStatus?: PurchasePaymentStatus;
-  paymentMethod?: PurchasePaymentMethod | null;
+  amountPaid?: number;
   notes?: string;
+  items: CreatePurchaseItemInput[];
+  // Legacy optional single-item fields for fallback
+  productId?: string;
+  quantityBought?: number;
+  unitCost?: number;
+}
+
+export interface UpdatePurchaseRequest {
+  id: string;
+  vendorId: string;
+  invoiceNumber: string;
+  purchaseDate?: string;
+  paymentDate?: string | null;
+  paymentMethod: PurchasePaymentMethod;
+  paymentStatus?: PurchasePaymentStatus;
+  amountPaid?: number;
+  notes?: string;
+  items: CreatePurchaseItemInput[];
 }
 
 export interface UpdatePurchasePaymentRequest {
   id: string;
   paymentStatus: PurchasePaymentStatus;
   paymentMethod?: PurchasePaymentMethod | null;
+  paymentDate?: string | null;
+  paidAmount?: number;
   notes?: string;
 }
 

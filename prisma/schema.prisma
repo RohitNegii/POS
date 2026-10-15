@@ -246,29 +246,38 @@ model Vendor {
   @@map("vendors")
 }
 
-/// Purchase Order from a Vendor on a specific date (Unique per company, vendor, and date).
+/// Bill-Wise Purchase from a Vendor with invoice number, payment details, and itemized lines.
 model Purchase {
-  id           String         @id @default(uuid())
-  companyId    String         @map("company_id")
-  vendorId     String         @map("vendor_id")
-  purchaseDate String         @map("purchase_date") // 'YYYY-MM-DD'
-  totalAmount  Float          @default(0) @map("total_amount")
-  notes        String?
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
+  id             String         @id @default(uuid())
+  purchaseNumber String         @unique @map("purchase_number")
+  companyId      String         @map("company_id")
+  vendorId       String         @map("vendor_id")
+  invoiceNumber  String         @map("invoice_number")
+  purchaseDate   String         @map("purchase_date") // 'YYYY-MM-DD'
+  subtotal       Float          @default(0) @map("subtotal")
+  taxAmount      Float          @default(0) @map("tax_amount")
+  totalAmount    Float          @default(0) @map("total_amount")
+  paidAmount     Float          @default(0) @map("paid_amount")
+  balanceAmount  Float          @default(0) @map("balance_amount")
+  paymentMethod  String         @default("CASH") @map("payment_method") // 'CASH' | 'ONLINE' | 'NO_PAYMENT'
+  paymentStatus  String         @default("PAID") @map("payment_status") // 'PAID' | 'PARTIAL' | 'UNPAID'
+  paymentDate    String?        @map("payment_date") // 'YYYY-MM-DD'
+  notes          String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
 
-  company      Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  vendor       Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  items        PurchaseItem[]
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor         Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  items          PurchaseItem[]
 
-  @@unique([companyId, vendorId, purchaseDate])
   @@index([companyId])
   @@index([vendorId])
   @@index([purchaseDate])
+  @@index([invoiceNumber])
   @@map("purchases")
 }
 
-/// Item in a purchase order — tracks individual product purchase details.
+/// Item in a purchase order — tracks individual product purchase details with historical snapshots.
 model PurchaseItem {
   id             String   @id @default(uuid())
   purchaseId     String   @map("purchase_id")
@@ -278,7 +287,10 @@ model PurchaseItem {
   categoryName   String?  @map("category_name")
   quantityBought Float    @map("quantity_bought")
   unitCost       Float    @default(0) @map("unit_cost")
+  taxRate        Float    @default(0) @map("tax_rate")
+  taxAmount      Float    @default(0) @map("tax_amount")
   totalAmount    Float    @default(0) @map("total_amount")
+  detailsJson    String?  @map("details_json")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 

@@ -62,7 +62,9 @@ const CHANNELS = {
   VENDOR_GET_BY_ID: 'vendor:get-by-id',
   VENDOR_DELETE: 'vendor:delete',
   PURCHASE_LIST: 'purchase:list',
+  PURCHASE_GET_BY_ID: 'purchase:get-by-id',
   PURCHASE_CREATE: 'purchase:create',
+  PURCHASE_UPDATE: 'purchase:update',
   PURCHASE_UPDATE_PAYMENT: 'purchase:update-payment',
   PURCHASE_DELETE: 'purchase:delete',
 } as const;
@@ -179,8 +181,14 @@ const posDesktopApi: PosDesktopApi = Object.freeze({
   listPurchases: (filter?: any): Promise<IpcResult<any[]>> => {
     return ipcRenderer.invoke(CHANNELS.PURCHASE_LIST, filter);
   },
+  getPurchaseById: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_GET_BY_ID, id);
+  },
   createPurchase: (input: any): Promise<IpcResult<any>> => {
     return ipcRenderer.invoke(CHANNELS.PURCHASE_CREATE, input);
+  },
+  updatePurchase: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_UPDATE, input);
   },
   updatePurchasePayment: (input: any): Promise<IpcResult<any>> => {
     return ipcRenderer.invoke(CHANNELS.PURCHASE_UPDATE_PAYMENT, input);

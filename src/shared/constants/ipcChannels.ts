@@ -37,6 +37,8 @@ export const IPC_CHANNELS = {
   VENDOR_DELETE: 'vendor:delete',
   PURCHASE_LIST: 'purchase:list',
   PURCHASE_CREATE: 'purchase:create',
+  PURCHASE_UPDATE: 'purchase:update',
+  PURCHASE_GET_BY_ID: 'purchase:get-by-id',
   PURCHASE_UPDATE_PAYMENT: 'purchase:update-payment',
   PURCHASE_DELETE: 'purchase:delete',
 } as const;

@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants/ipcChannels';
 import type {
   CreatePurchaseRequest,
+  UpdatePurchaseRequest,
   UpdatePurchasePaymentRequest,
   IpcResult,
   ListPurchasesFilter,
@@ -47,6 +48,25 @@ export function registerPurchaseIpcHandlers(): void {
     }
   );
 
+  ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_UPDATE);
+  ipcMain.handle(
+    IPC_CHANNELS.PURCHASE_UPDATE,
+    async (
+      _event,
+      input: UpdatePurchaseRequest
+    ): Promise<IpcResult<PurchaseDto>> => {
+      try {
+        const updated = await purchaseService.updatePurchase(input);
+        return { success: true, data: updated };
+      } catch (error) {
+        console.error('[IPC ERROR: purchase:update]', error);
+        const message =
+          error instanceof Error ? error.message : 'Failed to update purchase bill.';
+        return { success: false, error: message };
+      }
+    }
+  );
+
   ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_UPDATE_PAYMENT);
   ipcMain.handle(
     IPC_CHANNELS.PURCHASE_UPDATE_PAYMENT,
@@ -61,6 +81,24 @@ export function registerPurchaseIpcHandlers(): void {
         console.error('[IPC ERROR: purchase:update-payment]', error);
         const message =
           error instanceof Error ? error.message : 'Failed to update purchase payment.';
+        return { success: false, error: message };
+      }
+    }
+  );
+
+  ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_GET_BY_ID);
+  ipcMain.handle(
+    IPC_CHANNELS.PURCHASE_GET_BY_ID,
+    async (
+      _event,
+      id: string
+    ): Promise<IpcResult<PurchaseDto | null>> => {
+      try {
+        const purchase = await purchaseService.getPurchaseById(id);
+        return { success: true, data: purchase };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to retrieve purchase bill.';
         return { success: false, error: message };
       }
     }

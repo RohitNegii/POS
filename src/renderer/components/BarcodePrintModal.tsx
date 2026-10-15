@@ -9,6 +9,7 @@ interface BarcodePrintModalProps {
   session: AuthSessionPayload;
   isOpen: boolean;
   onClose: () => void;
+  initialCopies?: number;
 }
 
 export interface SizeOption {
@@ -123,6 +124,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
   session: _session,
   isOpen,
   onClose,
+  initialCopies,
 }) => {
   // Load saved preferences with safe fallbacks
   const savedPrefs = useMemo(() => {
@@ -158,20 +160,27 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 
   const [customWidthMm, setCustomWidthMm] = useState<number>(savedPrefs?.customWidthMm || 50);
   const [customHeightMm, setCustomHeightMm] = useState<number>(savedPrefs?.customHeightMm || 25);
-  const [horizontalPaddingMm, setHorizontalPaddingMm] = useState<number>(savedPrefs?.horizontalPaddingMm ?? 1.5);
-  const [verticalPaddingMm, setVerticalPaddingMm] = useState<number>(savedPrefs?.verticalPaddingMm ?? 1.0);
-  const [horizontalOffsetMm, setHorizontalOffsetMm] = useState<number>(savedPrefs?.horizontalOffsetMm ?? 0);
+  const [copies, setCopies] = useState<number>(() => {
+    return initialCopies && initialCopies > 0 ? Math.round(initialCopies) : 1;
+  });
 
-  const [copies, setCopies] = useState<number>(1);
-  const [showProductName, setShowProductName] = useState<boolean>(savedPrefs?.showProductName ?? true);
-  const [showCategory, setShowCategory] = useState<boolean>(savedPrefs?.showCategory ?? false);
-  const [showPurityWeight, setShowPurityWeight] = useState<boolean>(savedPrefs?.showPurityWeight ?? true);
-  const [showPrice, setShowPrice] = useState<boolean>(savedPrefs?.showPrice ?? true);
-  const [showPurchaseCode, setShowPurchaseCode] = useState<boolean>(savedPrefs?.showPurchaseCode ?? true);
-  const [showBarcodeValue, setShowBarcodeValue] = useState<boolean>(savedPrefs?.showBarcodeValue ?? true);
+  useEffect(() => {
+    if (isOpen && initialCopies && initialCopies > 0) {
+      setCopies(Math.round(initialCopies));
+    }
+  }, [isOpen, initialCopies, product?.id]);
+
+  // Standard label configuration defaults
+  const showProductName = true;
+  const showCategory = false;
+  const showPurityWeight = true;
+  const showPrice = true;
+  const showPurchaseCode = true;
+  const showBarcodeValue = true;
+  const horizontalPaddingMm = 1.5;
+  const verticalPaddingMm = 1.0;
+  const horizontalOffsetMm = 0;
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
-  const [isTestPrint, setIsTestPrint] = useState<boolean>(false);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
 
   // Persist preference updates
   useEffect(() => {
@@ -182,41 +191,18 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
           selectedSize,
           customWidthMm,
           customHeightMm,
-          horizontalPaddingMm,
-          verticalPaddingMm,
-          horizontalOffsetMm,
-          showProductName,
-          showCategory,
-          showPurityWeight,
-          showPrice,
-          showPurchaseCode,
-          showBarcodeValue,
         })
       );
     } catch {
       // Ignore localStorage write failures
     }
-  }, [
-    selectedSize,
-    customWidthMm,
-    customHeightMm,
-    horizontalPaddingMm,
-    verticalPaddingMm,
-    horizontalOffsetMm,
-    showProductName,
-    showCategory,
-    showPurityWeight,
-    showPrice,
-    showPurchaseCode,
-    showBarcodeValue,
-  ]);
+  }, [selectedSize, customWidthMm, customHeightMm]);
 
   // Ensure cleanup on modal close / unmount
   useEffect(() => {
     return () => {
       document.body.classList.remove('printing-barcode');
       setIsPrinting(false);
-      setIsTestPrint(false);
     };
   }, []);
 
@@ -287,8 +273,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     selectedSize === 'custom' ? Math.max(10, customHeightMm || 25) : activeOption.heightMm;
 
   // Perform physical label printing via clean offscreen window (Zero backdrop / Zero black leak)
-  const executePrint = async (testOnly = false) => {
-    setIsTestPrint(testOnly);
+  const executePrint = async () => {
     setIsPrinting(true);
     document.body.classList.add('printing-barcode');
 
@@ -382,35 +367,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     .tracking-tight { letter-spacing: -0.025em !important; }
     .text-black { color: #000000 !important; }
 
-    /* Tailwind font-size utilities */
-    .text-\\\\[5\\\\.5pt\\\\] { font-size: 5.5pt !important; }
-    .text-\\\\[6pt\\\\] { font-size: 6pt !important; }
-    .text-\\\\[7pt\\\\] { font-size: 7pt !important; }
-    .text-\\\\[8pt\\\\] { font-size: 8pt !important; }
-    .text-\\\\[8\\\\.5px\\\\] { font-size: 8.5px !important; }
-    .text-\\\\[8px\\\\] { font-size: 8px !important; }
-    .text-\\\\[9px\\\\] { font-size: 9px !important; }
-    .text-\\\\[10px\\\\] { font-size: 10px !important; }
-
-    /* Spacing Utilities */
-    .ml-auto { margin-left: auto !important; }
-    .mr-auto { margin-right: auto !important; }
-    .mx-auto { margin-left: auto !important; margin-right: auto !important; }
-    .my-auto { margin-top: auto !important; margin-bottom: auto !important; }
-    .mx-0\\\\.5 { margin-left: 0.5mm !important; margin-right: 0.5mm !important; }
-    .px-0\\\\.5 { padding-left: 0.5mm !important; padding-right: 0.5mm !important; }
-    .py-1 { padding-top: 1mm !important; padding-bottom: 1mm !important; }
-    .mt-0\\\\.5 { margin-top: 0.5mm !important; }
-    .pt-1 { padding-top: 1mm !important; }
-    .pl-1 { padding-left: 1mm !important; }
-    .pr-1 { padding-right: 1mm !important; }
-
-    /* Border Utilities */
-    .border-r { border-right-width: 1px !important; }
-    .border-t { border-top-width: 1px !important; }
-    .border-dotted { border-style: dotted !important; }
-    .border-black { border-color: #000000 !important; }
-
     /* Barcode SVG scaling - respects container height and width */
     svg {
       width: 100% !important;
@@ -488,13 +444,12 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
         setTimeout(() => {
           document.body.classList.remove('printing-barcode');
           setIsPrinting(false);
-          setIsTestPrint(false);
         }, 800);
       }
     }, 250);
   };
 
-  const copiesToPrint = isTestPrint ? 1 : copies;
+  const copiesToPrint = copies;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 p-4 backdrop-blur-sm select-text print:hidden">
@@ -711,164 +666,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   </button>
                 ))}
               </div>
-
-              {/* Toggles */}
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-cream-200">
-                <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showProductName}
-                    onChange={(e) => setShowProductName(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Product Name (Top)</span>
-                </label>
-
-                {isGoldSilverJewellery ? (
-                  <div className="flex items-center gap-1.5 rounded-lg bg-amber-100/70 border border-amber-300 px-2.5 py-1.5 col-span-2 text-xs text-amber-900">
-                    <span className="font-bold text-amber-700">ℹ</span>
-                    <span className="text-[11px] font-medium">
-                      Selling price omitted — priced live by today's metal rate at billing
-                    </span>
-                  </div>
-                ) : (
-                  priceDisplay && (
-                    <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={showPrice}
-                        onChange={(e) => setShowPrice(e.target.checked)}
-                        className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                      />
-                      <span className="font-semibold text-stone-900">Rate / Price (Left)</span>
-                    </label>
-                  )
-                )}
-
-                {purchaseCode && (
-                  <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={showPurchaseCode}
-                      onChange={(e) => setShowPurchaseCode(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                    />
-                    <span className="flex items-center gap-1">
-                      <span className="font-semibold text-stone-900">Code (Right):</span>
-                      <span className="font-mono text-[9px] font-bold text-amber-900 bg-amber-100 px-1 rounded border border-amber-300">
-                        {purchaseCode}
-                      </span>
-                    </span>
-                  </label>
-                )}
-
-                <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showBarcodeValue}
-                    onChange={(e) => setShowBarcodeValue(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Barcode Text (Below bars)</span>
-                </label>
-
-                <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showCategory}
-                    onChange={(e) => setShowCategory(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Category Name</span>
-                </label>
-
-                {purityWeightDisplay && (
-                  <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={showPurityWeight}
-                      onChange={(e) => setShowPurityWeight(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                    />
-                    <span className="font-semibold text-stone-900">Purity &amp; Weight ({purityWeightDisplay})</span>
-                  </label>
-                )}
-              </div>
-
-              {/* Advanced Fine-Tuning Toggle */}
-              <div className="pt-2 border-t border-cream-200">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-                  className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 hover:text-amber-900"
-                >
-                  <svg
-                    className={`h-3.5 w-3.5 transition-transform ${showAdvancedSettings ? 'rotate-90' : ''}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  <span>Fine-Tune Margins & Roll Offset</span>
-                </button>
-
-                {showAdvancedSettings && (
-                  <div className="mt-2.5 p-3 rounded-lg border border-cream-200 bg-white grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="block text-[10px] text-stone-600 font-medium mb-0.5">
-                        Horiz Margin
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step={0.5}
-                          min={0}
-                          max={10}
-                          value={horizontalPaddingMm}
-                          onChange={(e) => setHorizontalPaddingMm(parseFloat(e.target.value) || 0)}
-                          className="w-full h-6 rounded border border-cream-300 px-1 text-center font-mono text-xs"
-                        />
-                        <span className="text-[10px] text-stone-400">mm</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-stone-600 font-medium mb-0.5">
-                        Vert Margin
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step={0.5}
-                          min={0}
-                          max={10}
-                          value={verticalPaddingMm}
-                          onChange={(e) => setVerticalPaddingMm(parseFloat(e.target.value) || 0)}
-                          className="w-full h-6 rounded border border-cream-300 px-1 text-center font-mono text-xs"
-                        />
-                        <span className="text-[10px] text-stone-400">mm</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-stone-600 font-medium mb-0.5">
-                        X Shift (Offset)
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step={0.5}
-                          min={-5}
-                          max={5}
-                          value={horizontalOffsetMm}
-                          onChange={(e) => setHorizontalOffsetMm(parseFloat(e.target.value) || 0)}
-                          className="w-full h-6 rounded border border-cream-300 px-1 text-center font-mono text-xs"
-                        />
-                        <span className="text-[10px] text-stone-400">mm</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
 
@@ -1027,26 +824,11 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                 Cancel
               </button>
 
-              {/* Quick Single Sticker Test Print */}
-              <button
-                type="button"
-                id="btn-test-print-barcode"
-                onClick={() => executePrint(true)}
-                disabled={isPrinting}
-                title="Prints 1 single sticker to verify physical printer sensor alignment"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-3.5 py-2 text-xs font-semibold text-amber-900 transition disabled:opacity-50"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span>Test 1 Sticker</span>
-              </button>
-
               {/* Primary Batch Print */}
               <button
                 id="btn-confirm-print-barcode"
                 type="button"
-                onClick={() => executePrint(false)}
+                onClick={() => executePrint()}
                 disabled={isPrinting}
                 className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-500 transition disabled:opacity-50"
               >

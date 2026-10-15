@@ -6,7 +6,6 @@ import type {
   JewelleryPriceCalculationResult,
   ProductDto,
   ProductFieldValueInput,
-  VendorDto,
 } from '../../shared/types/ipc';
 import { ipcClient } from '../services/ipcClient';
 import { generateActualPurchasePriceCode } from '../../shared/utils/purchaseCode';
@@ -19,6 +18,8 @@ interface ProductFormModalProps {
   editingProduct: ProductDto | null;
   session: AuthSessionPayload;
   categories: CategoryDto[];
+  defaultVendorId?: string | null;
+  defaultPurchaseDate?: string | null;
 }
 
 export const ProductFormModal: React.FC<ProductFormModalProps> = ({
@@ -28,6 +29,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   editingProduct,
   session: _session,
   categories,
+  defaultVendorId,
+  defaultPurchaseDate,
 }) => {
   const { showError } = useToast();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
@@ -47,16 +50,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [saving, setSaving] = useState<boolean>(false);
   const [liveCalculation, setLiveCalculation] = useState<JewelleryPriceCalculationResult | null>(null);
 
-  // Vendor & Purchase Date States
-  const [vendors, setVendors] = useState<VendorDto[]>([]);
-  const [selectedVendorId, setSelectedVendorId] = useState<string>('');
-  const [purchaseDate, setPurchaseDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
-  const [isQuickAddVendorOpen, setIsQuickAddVendorOpen] = useState<boolean>(false);
-  const [quickVendorName, setQuickVendorName] = useState<string>('');
-  const [quickVendorPhone, setQuickVendorPhone] = useState<string>('');
-  const [quickVendorSubmitting, setQuickVendorSubmitting] = useState<boolean>(false);
 
 
   const actualPurchasePriceCode = generateActualPurchasePriceCode(
@@ -191,29 +184,22 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setSellingPrice('');
       setMargin('');
       setLastEditedPricingField(null);
-      setSelectedVendorId('');
-      setPurchaseDate(new Date().toISOString().split('T')[0]);
-      setIsQuickAddVendorOpen(false);
-      setQuickVendorName('');
-      setQuickVendorPhone('');
       setCategoryFields([]);
       setFieldValues({});
       return;
     }
 
-    // Load available vendors
-    ipcClient.listVendors().then((res) => {
-      if (res.success) {
-        setVendors(res.data);
-      }
-    }).catch(() => {});
-
     if (editingProduct) {
-      setSelectedCategoryId(editingProduct.categoryId);
+      let catIdToSet = editingProduct.categoryId || '';
+      if (!catIdToSet && categories.length > 0) {
+        const matched = categories.find(
+          (c) => c.name.toLowerCase() === (editingProduct.categoryName || '').toLowerCase()
+        );
+        catIdToSet = matched ? matched.id : categories[0].id;
+      }
+      setSelectedCategoryId(catIdToSet);
       setProductName(editingProduct.name);
       setStockQuantity(editingProduct.stockQuantity ?? 0);
-      setSelectedVendorId(editingProduct.vendorId || '');
-      setPurchaseDate(editingProduct.purchaseDate || new Date().toISOString().split('T')[0]);
 
       // Pre-fill existing field values
       const initialMap: Record<string, { valueText?: string; valueNumber?: number | string; valueBoolean?: boolean }> = {};
@@ -268,7 +254,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setLastEditedPricingField(initialSellingPrice !== '' ? 'sellingPrice' : null);
 
       // Load category fields for this category
-      void loadCategoryFields(editingProduct.categoryId, initialMap);
+      if (catIdToSet) {
+        void loadCategoryFields(catIdToSet, initialMap);
+      }
     } else {
       setProductName('');
       setStockQuantity('0');
@@ -280,8 +268,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setSellingPrice('');
       setMargin('');
       setLastEditedPricingField(null);
-      setSelectedVendorId('');
-      setPurchaseDate(new Date().toISOString().split('T')[0]);
       // If there are categories, default to the first one
       if (categories.length > 0) {
         const firstCatId = categories[0].id;
@@ -294,35 +280,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       }
     }
   }, [isOpen, editingProduct, categories]);
-
-  const handleQuickAddVendor = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = quickVendorName.trim();
-    if (!trimmed) {
-      showError('Vendor name is required.');
-      return;
-    }
-    setQuickVendorSubmitting(true);
-    try {
-      const res = await ipcClient.createVendor({
-        name: trimmed,
-        phoneNumber: quickVendorPhone.trim() || null,
-      });
-      if (res.success) {
-        setVendors((prev) => [...prev, res.data]);
-        setSelectedVendorId(res.data.id);
-        setIsQuickAddVendorOpen(false);
-        setQuickVendorName('');
-        setQuickVendorPhone('');
-      } else {
-        showError(res.error || 'Failed to add vendor.');
-      }
-    } catch (err) {
-      showError(err instanceof Error ? err.message : 'Failed to add vendor.');
-    } finally {
-      setQuickVendorSubmitting(false);
-    }
-  };
 
   const loadCategoryFields = async (
     catId: string,
@@ -525,12 +482,25 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     e.preventDefault();
 
     // 1. Category validation
-    if (!selectedCategoryId || !selectedCategoryId.trim()) {
+    let catId = selectedCategoryId?.trim();
+    if (!catId && editingProduct?.categoryId) {
+      catId = editingProduct.categoryId;
+      setSelectedCategoryId(catId);
+    }
+    if (!catId && categories.length > 0) {
+      const matched = categories.find(
+        (c) => c.name.toLowerCase() === (editingProduct?.categoryName || '').toLowerCase()
+      );
+      catId = matched ? matched.id : categories[0].id;
+      setSelectedCategoryId(catId);
+    }
+
+    if (!catId) {
       showError('Please select a product category.');
       return;
     }
 
-    const selectedCategoryObj = categories.find((c) => c.id === selectedCategoryId);
+    const selectedCategoryObj = categories.find((c) => c.id === catId);
     if (!selectedCategoryObj && !editingProduct) {
       showError('Selected category is invalid. Please select a valid category.');
       return;
@@ -938,6 +908,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       if (editingProduct) {
         const res = await ipcClient.updateProduct({
           id: editingProduct.id,
+          categoryId: catId,
           name: trimmedName,
           stockQuantity: parsedStock,
           fieldValues: fieldValuesPayload,
@@ -949,8 +920,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           actualPurchasePriceCode: generateActualPurchasePriceCode(parsedActualPurchasePrice),
           sellingPrice: parsedSellingPrice,
           marginPercentage: parsedMargin,
-          vendorId: selectedVendorId || null,
-          purchaseDate: selectedVendorId ? purchaseDate : null,
+          vendorId: defaultVendorId || editingProduct.vendorId || null,
+          purchaseDate: defaultPurchaseDate || editingProduct.purchaseDate || null,
         });
 
         if (res.success) {
@@ -973,8 +944,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           actualPurchasePriceCode: generateActualPurchasePriceCode(parsedActualPurchasePrice),
           sellingPrice: parsedSellingPrice,
           marginPercentage: parsedMargin,
-          vendorId: selectedVendorId || null,
-          purchaseDate: selectedVendorId ? purchaseDate : null,
+          vendorId: defaultVendorId || null,
+          purchaseDate: defaultPurchaseDate || null,
         });
 
         if (res.success) {
@@ -1078,27 +1049,20 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   <label htmlFor="product-category-select" className="block text-xs font-medium text-stone-700">
                     Product Category <span className="text-rose-500">*</span>
                   </label>
-                  {editingProduct ? (
-                    <div className="mt-1.5 flex items-center justify-between rounded-lg border border-cream-200 bg-white px-3.5 py-2 text-xs text-stone-700">
-                      <span className="font-semibold">{editingProduct.categoryName}</span>
-                      <span className="text-[10px] text-amber-700 font-mono font-medium">Locked</span>
-                    </div>
-                  ) : (
-                    <select
-                      id="product-category-select"
-                      value={selectedCategoryId}
-                      onChange={(e) => handleCategoryChange(e.target.value)}
-                      disabled={saving || categories.length === 0}
-                      className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                    >
-                      <option value="">-- Select Category --</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  <select
+                    id="product-category-select"
+                    value={selectedCategoryId}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    disabled={saving || categories.length === 0}
+                    className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                  >
+                    <option value="">-- Select Category --</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                   {categories.length === 0 && (
                     <p className="mt-1 text-[11px] text-rose-600 font-medium">
                       No categories found. Please create a category first in Category Management.
@@ -1168,113 +1132,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               </div>
             </div>
 
-            {/* Vendor & Purchase Details Section */}
-            <div className="rounded-xl border border-cream-200 bg-cream-50/50 p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-stone-600">
-                    Vendor & Purchase Details
-                  </h3>
-                  <p className="text-[11px] text-stone-500">
-                    Select the vendor from whom this product was purchased and the purchase date.
-                  </p>
-                </div>
-                {!isQuickAddVendorOpen && (
-                  <button
-                    type="button"
-                    onClick={() => setIsQuickAddVendorOpen(true)}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 hover:text-amber-800 transition"
-                  >
-                    <span>+ Quick Add Vendor</span>
-                  </button>
-                )}
-              </div>
-
-              {isQuickAddVendorOpen && (
-                <div className="rounded-xl border border-amber-300 bg-amber-50/60 p-3 space-y-2 animate-in fade-in duration-150">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-900">Add New Vendor</span>
-                    <button
-                      type="button"
-                      onClick={() => setIsQuickAddVendorOpen(false)}
-                      className="text-[11px] text-stone-500 hover:text-stone-800"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <input
-                      type="text"
-                      value={quickVendorName}
-                      onChange={(e) => setQuickVendorName(e.target.value)}
-                      placeholder="Vendor Name *"
-                      className="w-full rounded-lg border border-cream-300 bg-white px-3 py-1.5 text-xs text-stone-900 focus:border-amber-600 focus:outline-none"
-                    />
-                    <input
-                      type="tel"
-                      value={quickVendorPhone}
-                      onChange={(e) => setQuickVendorPhone(e.target.value)}
-                      placeholder="Phone Number (Optional)"
-                      className="w-full rounded-lg border border-cream-300 bg-white px-3 py-1.5 text-xs text-stone-900 focus:border-amber-600 focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={handleQuickAddVendor}
-                      disabled={quickVendorSubmitting || !quickVendorName.trim()}
-                      className="inline-flex items-center gap-1 rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1 text-xs font-bold text-white transition disabled:opacity-50"
-                    >
-                      {quickVendorSubmitting ? 'Adding...' : 'Save & Select Vendor'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {/* Vendor Dropdown */}
-                <div>
-                  <label htmlFor="product-vendor-select" className="block text-xs font-medium text-stone-700">
-                    Vendor / Supplier <span className="text-stone-400 font-normal">(Optional)</span>
-                  </label>
-                  <select
-                    id="product-vendor-select"
-                    value={selectedVendorId}
-                    onChange={(e) => setSelectedVendorId(e.target.value)}
-                    disabled={saving}
-                    className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                  >
-                    <option value="">-- No Vendor Selected --</option>
-                    {vendors.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} {v.phoneNumber ? `(${v.phoneNumber})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-[10px] text-stone-500">
-                    Who did you purchase this item from?
-                  </p>
-                </div>
-
-                {/* Purchase Date */}
-                <div>
-                  <label htmlFor="product-purchase-date-input" className="block text-xs font-medium text-stone-700">
-                    Purchase Date <span className="text-stone-400 font-normal">(When purchased)</span>
-                  </label>
-                  <input
-                    id="product-purchase-date-input"
-                    type="date"
-                    value={purchaseDate}
-                    onChange={(e) => setPurchaseDate(e.target.value)}
-                    disabled={saving}
-                    className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
-                  />
-                  <p className="mt-1 text-[10px] text-stone-500">
-                    Date of purchase entry
-                  </p>
-                </div>
-              </div>
-            </div>
 
             {/* Purchase Pricing Section */}
             <div className="rounded-xl border border-cream-200 bg-cream-50/50 p-4 space-y-4">

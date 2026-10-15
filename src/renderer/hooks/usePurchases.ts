@@ -4,6 +4,7 @@ import type {
   ListPurchasesFilter,
   PurchaseDto,
   UpdatePurchasePaymentRequest,
+  UpdatePurchaseRequest,
 } from '../../shared/types/ipc';
 import { ipcClient } from '../services/ipcClient';
 
@@ -35,7 +36,7 @@ export function usePurchases() {
     void refreshPurchases();
   }, [refreshPurchases]);
 
-  const createPurchase = async (input: CreatePurchaseRequest): Promise<PurchaseDto | null> => {
+  const createPurchase = useCallback(async (input: CreatePurchaseRequest): Promise<PurchaseDto | null> => {
     try {
       const res = await ipcClient.createPurchase(input);
       if (res.success) {
@@ -49,9 +50,25 @@ export function usePurchases() {
       setError(err instanceof Error ? err.message : 'Failed to record purchase');
       return null;
     }
-  };
+  }, [refreshPurchases]);
 
-  const updatePurchasePayment = async (input: UpdatePurchasePaymentRequest): Promise<PurchaseDto | null> => {
+  const updatePurchase = useCallback(async (input: UpdatePurchaseRequest): Promise<PurchaseDto | null> => {
+    try {
+      const res = await ipcClient.updatePurchase(input);
+      if (res.success) {
+        await refreshPurchases();
+        return res.data;
+      } else {
+        setError(res.error);
+        return null;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update purchase bill');
+      return null;
+    }
+  }, [refreshPurchases]);
+
+  const updatePurchasePayment = useCallback(async (input: UpdatePurchasePaymentRequest): Promise<PurchaseDto | null> => {
     try {
       const res = await ipcClient.updatePurchasePayment(input);
       if (res.success) {
@@ -65,9 +82,9 @@ export function usePurchases() {
       setError(err instanceof Error ? err.message : 'Failed to update payment');
       return null;
     }
-  };
+  }, [refreshPurchases]);
 
-  const deletePurchase = async (id: string): Promise<boolean> => {
+  const deletePurchase = useCallback(async (id: string): Promise<boolean> => {
     try {
       const res = await ipcClient.deletePurchase(id);
       if (res.success) {
@@ -81,7 +98,22 @@ export function usePurchases() {
       setError(err instanceof Error ? err.message : 'Failed to delete purchase');
       return false;
     }
-  };
+  }, [refreshPurchases]);
+
+  const getPurchaseById = useCallback(async (id: string): Promise<PurchaseDto | null> => {
+    try {
+      const res = await ipcClient.getPurchaseById(id);
+      if (res.success) {
+        return res.data;
+      } else {
+        setError(res.error);
+        return null;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retrieve purchase bill');
+      return null;
+    }
+  }, []);
 
   return {
     purchases,
@@ -90,7 +122,9 @@ export function usePurchases() {
     filter,
     setFilter,
     refreshPurchases,
+    getPurchaseById,
     createPurchase,
+    updatePurchase,
     updatePurchasePayment,
     deletePurchase,
     clearError: () => setError(null),

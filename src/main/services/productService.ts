@@ -1028,7 +1028,6 @@ export class ProductService {
         }
       }
 
-      const purchaseDate = input.purchaseDate?.trim() || new Date().toISOString().split('T')[0];
       const product = await tx.product.create({
         data: {
           companyId,
@@ -1054,55 +1053,6 @@ export class ProductService {
         });
       }
 
-      // If a vendor was selected, record the initial purchase in purchase history
-      if (input.vendorId) {
-        const cost = actualPurchasePriceVal ?? purchasePriceVal ?? 0;
-        const qty = stockQuantity > 0 ? stockQuantity : 1;
-        const total = Math.round(qty * cost * 100) / 100;
-
-        let purchase = await tx.purchase.findUnique({
-          where: {
-            companyId_vendorId_purchaseDate: {
-              companyId,
-              vendorId: input.vendorId,
-              purchaseDate,
-            },
-          },
-        });
-
-        if (!purchase) {
-          purchase = await tx.purchase.create({
-            data: {
-              companyId,
-              vendorId: input.vendorId,
-              purchaseDate,
-              totalAmount: total,
-              notes: JSON.stringify({ status: 'UNPAID', method: null, note: null }),
-            },
-          });
-        } else {
-          purchase = await tx.purchase.update({
-            where: { id: purchase.id },
-            data: {
-              totalAmount: { increment: total },
-            },
-          });
-        }
-
-        await tx.purchaseItem.create({
-          data: {
-            purchaseId: purchase.id,
-            productId: product.id,
-            productName: product.name,
-            barcode: product.barcode,
-            categoryName: category.name,
-            quantityBought: qty,
-            unitCost: cost,
-            totalAmount: total,
-          },
-        });
-      }
-
       return product;
     });
 
@@ -1123,10 +1073,6 @@ export class ProductService {
 
     const existingProduct = await this.verifyProductOwnership(input.id, companyId);
 
-    if (existingProduct.isArchived) {
-      throw new Error('Cannot update an archived or deleted product.');
-    }
-
     const name = input.name?.trim();
     if (!name) {
       throw new Error('Product name is required.');
@@ -1135,9 +1081,14 @@ export class ProductService {
       throw new Error('Product name cannot exceed 200 characters.');
     }
 
+    const categoryIdToUse = input.categoryId?.trim() || existingProduct.categoryId;
+    if (categoryIdToUse !== existingProduct.categoryId) {
+      await this.verifyCategoryOwnership(categoryIdToUse, companyId);
+    }
+
     // Load category fields for product's category
     const categoryFields = await prisma.categoryField.findMany({
-      where: { categoryId: existingProduct.categoryId },
+      where: { categoryId: categoryIdToUse },
     });
 
     // Extract purchase & selling pricing from direct fields or fieldValues
@@ -1545,8 +1496,10 @@ export class ProductService {
       await tx.product.update({
         where: { id: input.id },
         data: {
+          categoryId: categoryIdToUse,
           name,
           stockQuantity,
+          isArchived: false,
           ...(input.vendorId !== undefined ? { vendorId: input.vendorId || null } : {}),
           ...(input.purchaseDate !== undefined ? { purchaseDate: input.purchaseDate?.trim() || null } : {}),
         },
@@ -1569,185 +1522,6 @@ export class ProductService {
         });
       }
 
-      // Synchronize Purchase History entry for this product
-      const vendorIdToUse =
-        input.vendorId !== undefined ? (input.vendorId || null) : existingProduct.vendorId;
-      const purchaseDateToUse =
-        (input.purchaseDate !== undefined
-          ? input.purchaseDate?.trim() || null
-          : existingProduct.purchaseDate) || new Date().toISOString().split('T')[0];
-      const effectiveCost = actualPurchasePriceVal ?? purchasePriceVal ?? 0;
-      const qty = stockQuantity > 0 ? stockQuantity : 1;
-      const itemTotal = Math.round(qty * effectiveCost * 100) / 100;
-
-      const existingPurchaseItems = await tx.purchaseItem.findMany({
-        where: { productId: input.id },
-        include: { purchase: true },
-        orderBy: { createdAt: 'asc' },
-      });
-
-      if (existingPurchaseItems.length > 0) {
-        const primaryItem = existingPurchaseItems[0];
-
-        if (vendorIdToUse) {
-          if (
-            primaryItem.purchase.vendorId === vendorIdToUse &&
-            primaryItem.purchase.purchaseDate === purchaseDateToUse
-          ) {
-            // Case 1: Same vendor and date — update the purchase item in place
-            await tx.purchaseItem.update({
-              where: { id: primaryItem.id },
-              data: {
-                productName: name,
-                quantityBought: qty,
-                unitCost: effectiveCost,
-                totalAmount: itemTotal,
-              },
-            });
-
-            // Recalculate purchase order totalAmount
-            const items = await tx.purchaseItem.findMany({
-              where: { purchaseId: primaryItem.purchaseId },
-            });
-            const newOrderTotal = Math.round(
-              items.reduce(
-                (sum, it) => sum + (it.id === primaryItem.id ? itemTotal : it.totalAmount),
-                0
-              ) * 100
-            ) / 100;
-            await tx.purchase.update({
-              where: { id: primaryItem.purchaseId },
-              data: { totalAmount: newOrderTotal },
-            });
-          } else {
-            // Case 2: Vendor or date changed — move item to target purchase order
-            let targetPurchase = await tx.purchase.findUnique({
-              where: {
-                companyId_vendorId_purchaseDate: {
-                  companyId,
-                  vendorId: vendorIdToUse,
-                  purchaseDate: purchaseDateToUse,
-                },
-              },
-            });
-
-            if (!targetPurchase) {
-              targetPurchase = await tx.purchase.create({
-                data: {
-                  companyId,
-                  vendorId: vendorIdToUse,
-                  purchaseDate: purchaseDateToUse,
-                  totalAmount: itemTotal,
-                  notes: JSON.stringify({ status: 'UNPAID', method: null, note: null }),
-                },
-              });
-            }
-
-            await tx.purchaseItem.update({
-              where: { id: primaryItem.id },
-              data: {
-                purchaseId: targetPurchase.id,
-                productName: name,
-                quantityBought: qty,
-                unitCost: effectiveCost,
-                totalAmount: itemTotal,
-              },
-            });
-
-            // Recalculate target purchase total
-            const targetItems = await tx.purchaseItem.findMany({
-              where: { purchaseId: targetPurchase.id },
-            });
-            const newTargetTotal = Math.round(
-              targetItems.reduce((sum, it) => sum + it.totalAmount, 0) * 100
-            ) / 100;
-            await tx.purchase.update({
-              where: { id: targetPurchase.id },
-              data: { totalAmount: newTargetTotal },
-            });
-
-            // Recalculate or clean up old purchase order
-            const oldPurchaseId = primaryItem.purchaseId;
-            const remainingOldItems = await tx.purchaseItem.findMany({
-              where: { purchaseId: oldPurchaseId },
-            });
-            if (remainingOldItems.length === 0) {
-              await tx.purchase.delete({ where: { id: oldPurchaseId } });
-            } else {
-              const oldTotal = Math.round(
-                remainingOldItems.reduce((sum, it) => sum + it.totalAmount, 0) * 100
-              ) / 100;
-              await tx.purchase.update({
-                where: { id: oldPurchaseId },
-                data: { totalAmount: oldTotal },
-              });
-            }
-          }
-        } else {
-          // Case 3: Vendor cleared from product — remove purchase item and adjust purchase total
-          await tx.purchaseItem.delete({ where: { id: primaryItem.id } });
-          const oldPurchaseId = primaryItem.purchaseId;
-          const remainingOldItems = await tx.purchaseItem.findMany({
-            where: { purchaseId: oldPurchaseId },
-          });
-          if (remainingOldItems.length === 0) {
-            await tx.purchase.delete({ where: { id: oldPurchaseId } });
-          } else {
-            const oldTotal = Math.round(
-              remainingOldItems.reduce((sum, it) => sum + it.totalAmount, 0) * 100
-            ) / 100;
-            await tx.purchase.update({
-              where: { id: oldPurchaseId },
-              data: { totalAmount: oldTotal },
-            });
-          }
-        }
-      } else if (vendorIdToUse) {
-        // Case 4: Product previously had no purchase item, but now has vendor — create initial purchase
-        let purchase = await tx.purchase.findUnique({
-          where: {
-            companyId_vendorId_purchaseDate: {
-              companyId,
-              vendorId: vendorIdToUse,
-              purchaseDate: purchaseDateToUse,
-            },
-          },
-        });
-
-        if (!purchase) {
-          purchase = await tx.purchase.create({
-            data: {
-              companyId,
-              vendorId: vendorIdToUse,
-              purchaseDate: purchaseDateToUse,
-              totalAmount: itemTotal,
-              notes: JSON.stringify({ status: 'UNPAID', method: null, note: null }),
-            },
-          });
-        }
-
-        await tx.purchaseItem.create({
-          data: {
-            purchaseId: purchase.id,
-            productId: input.id,
-            productName: name,
-            barcode: existingProduct.barcode,
-            categoryName: existingProduct.category.name,
-            quantityBought: qty,
-            unitCost: effectiveCost,
-            totalAmount: itemTotal,
-          },
-        });
-
-        const items = await tx.purchaseItem.findMany({
-          where: { purchaseId: purchase.id },
-        });
-        const newTotal = Math.round(items.reduce((sum, it) => sum + it.totalAmount, 0) * 100) / 100;
-        await tx.purchase.update({
-          where: { id: purchase.id },
-          data: { totalAmount: newTotal },
-        });
-      }
     });
 
     return this.getProductById(input.id);

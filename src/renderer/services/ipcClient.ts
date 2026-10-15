@@ -31,6 +31,7 @@ import type {
   UpdateVendorRequest,
   PurchaseDto,
   CreatePurchaseRequest,
+  UpdatePurchaseRequest,
   UpdatePurchasePaymentRequest,
   ListPurchasesFilter,
 } from '../../shared/types/ipc';
@@ -415,6 +416,16 @@ export const ipcClient = {
     return window.posApi.listPurchases(filter);
   },
 
+  async getPurchaseById(id: string): Promise<IpcResult<PurchaseDto | null>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.getPurchaseById(id);
+  },
+
   async createPurchase(input: CreatePurchaseRequest): Promise<IpcResult<PurchaseDto>> {
     if (!window.posApi) {
       return {
@@ -423,6 +434,16 @@ export const ipcClient = {
       };
     }
     return window.posApi.createPurchase(input);
+  },
+
+  async updatePurchase(input: UpdatePurchaseRequest): Promise<IpcResult<PurchaseDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.updatePurchase(input);
   },
 
   async updatePurchasePayment(input: UpdatePurchasePaymentRequest): Promise<IpcResult<PurchaseDto>> {

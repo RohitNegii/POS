@@ -8,7 +8,7 @@ interface ProductDetailModalProps {
   session: AuthSessionPayload;
   isOpen: boolean;
   onClose: () => void;
-  onEdit: (product: ProductDto) => void;
+  onEdit?: (product: ProductDto) => void;
   onDelete?: (productId: string) => void;
   onPrintBarcode: (productId: string) => void;
 }
@@ -519,13 +519,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         {/* Footer Actions */}
         <div className="flex items-center justify-between border-t border-cream-200 px-6 py-4 bg-cream-50/70">
           <div>
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition"
-            >
-              Delete Product
-            </button>
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition"
+              >
+                Delete Product
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -536,16 +538,18 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             >
               Close
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                onEdit(product);
-                onClose();
-              }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-amber-500 transition"
-            >
-              Edit Product
-            </button>
+            {onEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  onEdit(product);
+                  onClose();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-amber-500 transition"
+              >
+                Edit Product
+              </button>
+            )}
           </div>
         </div>
       </div>

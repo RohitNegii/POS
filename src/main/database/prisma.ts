@@ -354,23 +354,22 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS "vendors_company_id_idx" ON "vendors"("company_id");
   `);
 
-  // Idempotent bootstrap for purchases table (1 record per vendor per date)
-  try {
-    const pCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("purchases");');
-    if (Array.isArray(pCols) && pCols.some((c) => c.name === 'product_id')) {
-      await client.$executeRawUnsafe('DROP TABLE IF EXISTS "purchases";');
-    }
-  } catch (err) {
-    console.warn('[DB] Notice during purchases migration check:', err);
-  }
-
+  // Idempotent bootstrap for purchases table (Bill-Wise Purchase Module)
   await client.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "purchases" (
       "id" TEXT NOT NULL PRIMARY KEY,
+      "purchase_number" TEXT NOT NULL DEFAULT '',
       "company_id" TEXT NOT NULL,
       "vendor_id" TEXT NOT NULL,
+      "invoice_number" TEXT NOT NULL DEFAULT '',
       "purchase_date" TEXT NOT NULL,
+      "subtotal" REAL NOT NULL DEFAULT 0,
+      "tax_amount" REAL NOT NULL DEFAULT 0,
       "total_amount" REAL NOT NULL DEFAULT 0,
+      "paid_amount" REAL NOT NULL DEFAULT 0,
+      "balance_amount" REAL NOT NULL DEFAULT 0,
+      "payment_method" TEXT NOT NULL DEFAULT 'CASH',
+      "payment_status" TEXT NOT NULL DEFAULT 'PAID',
       "notes" TEXT,
       "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -378,8 +377,71 @@ export async function initializeDatabase(): Promise<void> {
       CONSTRAINT "purchases_vendor_id_fkey" FOREIGN KEY ("vendor_id") REFERENCES "vendors" ("id") ON DELETE CASCADE ON UPDATE CASCADE
     );
   `);
+
+  // Migrate any existing purchases table columns and constraints
+  try {
+    const pCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("purchases");');
+    if (Array.isArray(pCols)) {
+      if (!pCols.some((c) => c.name === 'purchase_number')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "purchase_number" TEXT NOT NULL DEFAULT "";');
+      }
+      if (!pCols.some((c) => c.name === 'invoice_number')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "invoice_number" TEXT NOT NULL DEFAULT "";');
+      }
+      if (!pCols.some((c) => c.name === 'subtotal')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "subtotal" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'tax_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "tax_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'paid_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "paid_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'balance_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "balance_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'payment_method')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "payment_method" TEXT NOT NULL DEFAULT "CASH";');
+      }
+      if (!pCols.some((c) => c.name === 'payment_status')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "payment_status" TEXT NOT NULL DEFAULT "PAID";');
+      }
+      if (!pCols.some((c) => c.name === 'payment_date')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "payment_date" TEXT;');
+      }
+    }
+
+    // Drop old uniqueness constraint on (companyId, vendorId, purchaseDate) to support multiple bills
+    await client.$executeRawUnsafe('DROP INDEX IF EXISTS "purchases_company_id_vendor_id_purchase_date_key";');
+
+    // Backfill any empty purchase_number
+    await client.$executeRawUnsafe(`
+      UPDATE "purchases"
+      SET "purchase_number" = 'PUR-' || replace(purchase_date, '-', '') || '-' || substr(id, 1, 6)
+      WHERE "purchase_number" IS NULL OR "purchase_number" = '';
+    `);
+
+    // Backfill any empty invoice_number
+    await client.$executeRawUnsafe(`
+      UPDATE "purchases"
+      SET "invoice_number" = 'INV-' || substr(id, 1, 6)
+      WHERE "invoice_number" IS NULL OR "invoice_number" = '';
+    `);
+
+    // Backfill payment_date for historical purchases where payment was done
+    await client.$executeRawUnsafe(`
+      UPDATE "purchases"
+      SET "payment_date" = "purchase_date"
+      WHERE ("payment_date" IS NULL OR "payment_date" = '')
+        AND ("payment_status" = 'PAID' OR "paid_amount" > 0)
+        AND "payment_method" NOT IN ('NO_PAYMENT', 'CREDIT');
+    `);
+  } catch (err) {
+    console.warn('[DB] Notice during purchases column migration:', err);
+  }
+
   await client.$executeRawUnsafe(`
-    CREATE UNIQUE INDEX IF NOT EXISTS "purchases_company_id_vendor_id_purchase_date_key" ON "purchases"("company_id", "vendor_id", "purchase_date");
+    CREATE UNIQUE INDEX IF NOT EXISTS "purchases_purchase_number_key" ON "purchases"("purchase_number");
   `);
   await client.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "purchases_company_id_idx" ON "purchases"("company_id");
@@ -389,6 +451,9 @@ export async function initializeDatabase(): Promise<void> {
   `);
   await client.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "purchases_purchase_date_idx" ON "purchases"("purchase_date");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchases_invoice_number_idx" ON "purchases"("invoice_number");
   `);
 
   // Idempotent bootstrap for purchase_items table (Itemized products in purchase)
@@ -402,13 +467,35 @@ export async function initializeDatabase(): Promise<void> {
       "category_name" TEXT,
       "quantity_bought" REAL NOT NULL DEFAULT 0,
       "unit_cost" REAL NOT NULL DEFAULT 0,
+      "tax_rate" REAL NOT NULL DEFAULT 0,
+      "tax_amount" REAL NOT NULL DEFAULT 0,
       "total_amount" REAL NOT NULL DEFAULT 0,
+      "details_json" TEXT,
       "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT "purchase_items_purchase_id_fkey" FOREIGN KEY ("purchase_id") REFERENCES "purchases" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
       CONSTRAINT "purchase_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products" ("id") ON DELETE SET NULL ON UPDATE CASCADE
     );
   `);
+
+  // Migrate any existing purchase_items columns
+  try {
+    const itemCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("purchase_items");');
+    if (Array.isArray(itemCols)) {
+      if (!itemCols.some((c) => c.name === 'tax_rate')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "tax_rate" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'tax_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "tax_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'details_json')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "details_json" TEXT;');
+      }
+    }
+  } catch (err) {
+    console.warn('[DB] Notice during purchase_items column migration:', err);
+  }
+
   await client.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "purchase_items_purchase_id_idx" ON "purchase_items"("purchase_id");
   `);

@@ -42,7 +42,7 @@ export function registerProductIpcHandlers(): void {
       id: string
     ): Promise<IpcResult<ProductDto>> => {
       try {
-        const product = await productService.getProductById(id);
+        const product = await productService.getProductById(id, true);
         return { success: true, data: product };
       } catch (error) {
         const message =

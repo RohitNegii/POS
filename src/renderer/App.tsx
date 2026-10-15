@@ -8,6 +8,7 @@ import { LoginPage } from './pages/LoginPage';
 import { MetalRatesPage } from './pages/MetalRatesPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { VendorsPage } from './pages/VendorsPage';
+import { PurchaseEntryPage } from './pages/PurchaseEntryPage';
 import { PurchaseHistoryPage } from './pages/PurchaseHistoryPage';
 
 import { ToastProvider } from './context/ToastContext';
@@ -15,6 +16,7 @@ import { ToastProvider } from './context/ToastContext';
 const AppContent: React.FC = () => {
   const auth = useAuth();
   const [currentView, setCurrentView] = useState<AppNavView>('billing');
+  const [editingPurchaseId, setEditingPurchaseId] = useState<string | null>(null);
 
   // Set default view based on user role
   useEffect(() => {
@@ -57,7 +59,12 @@ const AppContent: React.FC = () => {
     <AppLayout
       session={auth.session}
       currentView={currentView}
-      onNavigate={setCurrentView}
+      onNavigate={(view) => {
+        if (view !== 'purchase-entry') {
+          setEditingPurchaseId(null);
+        }
+        setCurrentView(view);
+      }}
       onLogout={auth.logout}
       loggingOut={auth.loggingOut}
     >
@@ -72,15 +79,44 @@ const AppContent: React.FC = () => {
           onNavigateToBilling={() => setCurrentView('billing')}
         />
       ) : currentView === 'products' ? (
-        <ProductsPage session={auth.session} />
+        <ProductsPage
+          session={auth.session}
+          onNavigateToPurchaseEntry={() => {
+            setEditingPurchaseId(null);
+            setCurrentView('purchase-entry');
+          }}
+        />
       ) : currentView === 'categories' ? (
         <CategoryPage session={auth.session} />
       ) : currentView === 'rates' ? (
         <MetalRatesPage session={auth.session} />
       ) : currentView === 'vendors' ? (
         <VendorsPage session={auth.session} />
+      ) : currentView === 'purchase-entry' ? (
+        <PurchaseEntryPage
+          session={auth.session}
+          onNavigateToHistory={() => {
+            setEditingPurchaseId(null);
+            setCurrentView('purchases');
+          }}
+          editingPurchaseId={editingPurchaseId}
+          onCancelEdit={() => {
+            setEditingPurchaseId(null);
+            setCurrentView('purchases');
+          }}
+        />
       ) : (
-        <PurchaseHistoryPage session={auth.session} />
+        <PurchaseHistoryPage
+          session={auth.session}
+          onNavigateToEntry={() => {
+            setEditingPurchaseId(null);
+            setCurrentView('purchase-entry');
+          }}
+          onEditPurchase={(purchaseId: string) => {
+            setEditingPurchaseId(purchaseId);
+            setCurrentView('purchase-entry');
+          }}
+        />
       )}
     </AppLayout>
   );
