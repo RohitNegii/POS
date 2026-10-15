@@ -824,149 +824,6 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
               </div>
             )}
 
-            {/* Content Selection Toggles */}
-            <div className="rounded-xl border border-cream-200 bg-cream-50/50 p-4 space-y-3">
-              <label className="text-xs text-stone-800 font-bold block">
-                Label Information Toggles
-              </label>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <label className="flex items-center gap-2 text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showProductName}
-                    onChange={(e) => setShowProductName(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Product Name (Top)</span>
-                </label>
-
-                <label className="flex items-center gap-2 text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showPrice}
-                    onChange={(e) => setShowPrice(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span className="font-semibold text-stone-900">Rate / Price (Left)</span>
-                </label>
-
-                <label className="flex items-center gap-2 text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showPurchaseCode}
-                    onChange={(e) => setShowPurchaseCode(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span className="font-semibold text-stone-900">Purchase Code (Right)</span>
-                </label>
-
-                <label className="flex items-center gap-2 text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showBarcodeValue}
-                    onChange={(e) => setShowBarcodeValue(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Barcode Text (Below bars)</span>
-                </label>
-
-                <label className="flex items-center gap-2 text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showCategory}
-                    onChange={(e) => setShowCategory(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Category Name</span>
-                </label>
-
-                <label className="flex items-center gap-2 text-stone-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={showPurityWeight}
-                    onChange={(e) => setShowPurityWeight(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-cream-300 text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Purity & Weight (Jewellery)</span>
-                </label>
-              </div>
-
-              {/* Advanced Settings */}
-              <div className="pt-2 border-t border-cream-200">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-                  className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 hover:text-amber-900"
-                >
-                  <svg
-                    className={`h-3.5 w-3.5 transition-transform ${showAdvancedSettings ? 'rotate-90' : ''}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  <span>Fine-Tune Margins & Roll Offset</span>
-                </button>
-
-                {showAdvancedSettings && (
-                  <div className="mt-2.5 p-3 rounded-lg border border-cream-200 bg-white grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="block text-[10px] text-stone-600 font-medium mb-0.5">
-                        Horiz Margin
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step={0.5}
-                          min={0}
-                          max={10}
-                          value={horizontalPaddingMm}
-                          onChange={(e) => setHorizontalPaddingMm(parseFloat(e.target.value) || 0)}
-                          className="w-full h-6 rounded border border-cream-300 px-1 text-center font-mono text-xs"
-                        />
-                        <span className="text-[10px] text-stone-400">mm</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-stone-600 font-medium mb-0.5">
-                        Vert Margin
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step={0.5}
-                          min={0}
-                          max={10}
-                          value={verticalPaddingMm}
-                          onChange={(e) => setVerticalPaddingMm(parseFloat(e.target.value) || 0)}
-                          className="w-full h-6 rounded border border-cream-300 px-1 text-center font-mono text-xs"
-                        />
-                        <span className="text-[10px] text-stone-400">mm</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-stone-600 font-medium mb-0.5">
-                        X Shift (Offset)
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step={0.5}
-                          min={-5}
-                          max={5}
-                          value={horizontalOffsetMm}
-                          onChange={(e) => setHorizontalOffsetMm(parseFloat(e.target.value) || 0)}
-                          className="w-full h-6 rounded border border-cream-300 px-1 text-center font-mono text-xs"
-                        />
-                        <span className="text-[10px] text-stone-400">mm</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* Right Panel: Sticker Live Preview & Print Actions */}
@@ -1167,26 +1024,11 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
                 Cancel
               </button>
 
-              {/* Quick Single Sticker Test Print */}
-              <button
-                type="button"
-                id="btn-batch-test-print"
-                onClick={() => executePrint(true)}
-                disabled={isPrinting || !currentPreviewItem}
-                title="Prints 1 single sticker to verify physical printer sensor alignment"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900 transition disabled:opacity-50 shadow-2xs"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span>Test 1 Sticker</span>
-              </button>
-
               {/* Primary Batch Print */}
               <button
                 id="btn-batch-confirm-print"
                 type="button"
-                onClick={() => executePrint(false)}
+                onClick={() => executePrint()}
                 disabled={isPrinting || totalStickersToPrint === 0}
                 className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-500 transition disabled:opacity-50"
               >
