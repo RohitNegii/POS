@@ -22,14 +22,9 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session, onNavigateT
     error,
     filter,
     setFilter,
-    refreshProducts,
     clearError,
   } = useProducts();
 
-  // Always refresh products catalog on mount so updates from Purchase Entry reflect immediately
-  useEffect(() => {
-    void refreshProducts();
-  }, [refreshProducts]);
 
   // Surface product errors via toast instead of inline banner
   useEffect(() => {

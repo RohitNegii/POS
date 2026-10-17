@@ -90,6 +90,27 @@ export function registerProductIpcHandlers(): void {
     }
   );
 
+  // Generate Barcode Preview / Sequence
+  ipcMain.removeHandler(IPC_CHANNELS.PRODUCT_GENERATE_BARCODE);
+  ipcMain.handle(
+    IPC_CHANNELS.PRODUCT_GENERATE_BARCODE,
+    async (
+      _event,
+      input: { productName: string; categoryName: string }
+    ): Promise<IpcResult<string>> => {
+      try {
+        const barcode = await productService.generatePermanentBarcode(
+          input.productName,
+          input.categoryName
+        );
+        return { success: true, data: barcode };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to generate barcode.';
+        return { success: false, error: message };
+      }
+    }
+  );
 
   // Delete Product Permanently
   ipcMain.removeHandler(IPC_CHANNELS.PRODUCT_DELETE);

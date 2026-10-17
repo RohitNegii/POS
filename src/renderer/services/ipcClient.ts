@@ -266,6 +266,18 @@ export const ipcClient = {
     return window.posApi.printBarcode(input);
   },
 
+  async generateBarcode(
+    input: { productName: string; categoryName: string }
+  ): Promise<IpcResult<string>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.generateBarcode(input);
+  },
+
   async getCurrentMetalRates(): Promise<IpcResult<CurrentMetalRatesDto>> {
     if (!window.posApi) {
       return {

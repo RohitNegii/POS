@@ -30,6 +30,11 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
   const [formData, setFormData] = useState({
     name: '',
     phoneNumber: '',
+    address: '',
+    gstNumber: '',
+    bankName: '',
+    accountNumber: '',
+    ifscCode: '',
   });
   const [submitting, setSubmitting] = useState<boolean>(false);
 
@@ -47,7 +52,15 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
 
   const handleOpenAddModal = () => {
     setEditingVendor(null);
-    setFormData({ name: '', phoneNumber: '' });
+    setFormData({
+      name: '',
+      phoneNumber: '',
+      address: '',
+      gstNumber: '',
+      bankName: '',
+      accountNumber: '',
+      ifscCode: '',
+    });
     setIsModalOpen(true);
   };
 
@@ -56,6 +69,11 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
     setFormData({
       name: vendor.name,
       phoneNumber: vendor.phoneNumber || '',
+      address: vendor.address || '',
+      gstNumber: vendor.gstNumber || '',
+      bankName: vendor.bankName || '',
+      accountNumber: vendor.accountNumber || '',
+      ifscCode: vendor.ifscCode || '',
     });
     setIsModalOpen(true);
   };
@@ -79,6 +97,11 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
           id: editingVendor.id,
           name: trimmedName,
           phoneNumber: formData.phoneNumber.trim() || null,
+          address: formData.address.trim() || null,
+          gstNumber: formData.gstNumber.trim().toUpperCase() || null,
+          bankName: formData.bankName.trim() || null,
+          accountNumber: formData.accountNumber.trim() || null,
+          ifscCode: formData.ifscCode.trim().toUpperCase() || null,
         });
         if (res) {
           showSuccess(`Vendor "${res.name}" updated successfully.`);
@@ -88,6 +111,11 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
         const res = await createVendor({
           name: trimmedName,
           phoneNumber: formData.phoneNumber.trim() || null,
+          address: formData.address.trim() || null,
+          gstNumber: formData.gstNumber.trim().toUpperCase() || null,
+          bankName: formData.bankName.trim() || null,
+          accountNumber: formData.accountNumber.trim() || null,
+          ifscCode: formData.ifscCode.trim().toUpperCase() || null,
         });
         if (res) {
           showSuccess(`Vendor "${res.name}" created successfully.`);
@@ -235,6 +263,16 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
                   >
                     <td className="px-6 py-4">
                       <div className="font-bold text-stone-900">{vendor.name}</div>
+                      {vendor.gstNumber && (
+                        <div className="font-mono text-[11px] text-amber-800 font-semibold mt-0.5">
+                          GSTIN: {vendor.gstNumber}
+                        </div>
+                      )}
+                      {vendor.address && (
+                        <div className="text-[11px] text-stone-500 truncate max-w-xs mt-0.5">
+                          {vendor.address}
+                        </div>
+                      )}
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -247,6 +285,13 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
                         </div>
                       ) : (
                         <span className="text-stone-400 font-normal italic">Optional / Not provided</span>
+                      )}
+                      {vendor.bankName && (
+                        <div className="text-[11px] text-stone-500 mt-1 flex items-center gap-1">
+                          <span className="rounded bg-cream-100 px-1.5 py-0.2 text-[10px] font-semibold text-stone-600">Bank</span>
+                          <span>{vendor.bankName}</span>
+                          {vendor.accountNumber ? ` • ${vendor.accountNumber.slice(-4)}` : ''}
+                        </div>
                       )}
                     </td>
 
@@ -309,10 +354,10 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+            <form onSubmit={handleSubmit} className="mt-4 space-y-3.5 max-h-[75vh] overflow-y-auto pr-1">
               <div>
                 <label className="block text-xs font-bold text-stone-700 mb-1">
-                  Vendor Name <span className="text-amber-600">*</span>
+                  Vendor / Supplier Name <span className="text-amber-600">*</span>
                 </label>
                 <input
                   id="vendor-name-input"
@@ -325,18 +370,98 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
                 />
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                    Phone Number <span className="text-stone-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    id="vendor-phone-input"
+                    type="tel"
+                    value={formData.phoneNumber}
+                    onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                    placeholder="e.g. +91 98765 43210"
+                    className="w-full rounded-xl border border-cream-300 bg-cream-50/50 px-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1">
+                    GSTIN Number <span className="text-stone-400 font-normal">(Vendor GST No)</span>
+                  </label>
+                  <input
+                    id="vendor-gst-input"
+                    type="text"
+                    value={formData.gstNumber}
+                    onChange={(e) => setFormData({ ...formData, gstNumber: e.target.value.toUpperCase() })}
+                    placeholder="e.g. 07AAAAA0000A1Z5"
+                    className="w-full rounded-xl border border-cream-300 bg-cream-50/50 px-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20 font-mono uppercase"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-stone-700 mb-1">
-                  Phone Number <span className="text-stone-400 font-normal">(Optional)</span>
+                  Address of Creditor / Vendor <span className="text-stone-400 font-normal">(Billing / Dispatch)</span>
                 </label>
-                <input
-                  id="vendor-phone-input"
-                  type="tel"
-                  value={formData.phoneNumber}
-                  onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                  placeholder="e.g. +91 98765 43210"
+                <textarea
+                  id="vendor-address-input"
+                  rows={2}
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="Street, City, State, PIN Code"
                   className="w-full rounded-xl border border-cream-300 bg-cream-50/50 px-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20"
                 />
+              </div>
+
+              {/* Bank Details of Vendor */}
+              <div className="rounded-xl border border-cream-300 bg-cream-50/50 p-3 space-y-2.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-600 block">
+                  Bank Account Details of Vendor
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                      Bank Name
+                    </label>
+                    <input
+                      id="vendor-bank-name-input"
+                      type="text"
+                      value={formData.bankName}
+                      onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                      placeholder="e.g. HDFC Bank"
+                      className="w-full rounded-lg border border-cream-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                      Account No.
+                    </label>
+                    <input
+                      id="vendor-account-no-input"
+                      type="text"
+                      value={formData.accountNumber}
+                      onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
+                      placeholder="e.g. 50100234567890"
+                      className="w-full rounded-lg border border-cream-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+                      IFSC Code
+                    </label>
+                    <input
+                      id="vendor-ifsc-input"
+                      type="text"
+                      value={formData.ifscCode}
+                      onChange={(e) => setFormData({ ...formData, ifscCode: e.target.value.toUpperCase() })}
+                      placeholder="e.g. HDFC0001234"
+                      className="w-full rounded-lg border border-cream-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none font-mono uppercase"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-cream-200">

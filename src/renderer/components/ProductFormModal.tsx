@@ -3,6 +3,7 @@ import type {
   AuthSessionPayload,
   CategoryDto,
   CategoryFieldDto,
+  CreateProductRequest,
   JewelleryPriceCalculationResult,
   ProductDto,
   ProductFieldValueInput,
@@ -11,11 +12,37 @@ import { ipcClient } from '../services/ipcClient';
 import { generateActualPurchasePriceCode } from '../../shared/utils/purchaseCode';
 import { useToast } from '../context/ToastContext';
 
+export interface FormBillItemDetails {
+  itemDescription: string;
+  hsnCode: string;
+  quantityBought: number;
+  unitCost: number;
+  discount: number;
+  taxableAmount: number;
+  cgstRate: number;
+  cgstAmount: number;
+  sgstRate: number;
+  sgstAmount: number;
+  igstRate: number;
+  igstAmount: number;
+  lineTotal: number;
+}
+
 interface ProductFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: (saved: ProductDto) => void;
+  onSaved: (saved: ProductDto, billDetails?: FormBillItemDetails, productDraft?: CreateProductRequest) => void;
   editingProduct: ProductDto | null;
+  initialBillItem?: {
+    itemDescription?: string;
+    hsnCode?: string;
+    quantityBought?: number;
+    unitCost?: number;
+    discount?: number;
+    cgstRate?: number;
+    sgstRate?: number;
+    igstRate?: number;
+  } | null;
   session: AuthSessionPayload;
   categories: CategoryDto[];
   defaultVendorId?: string | null;
@@ -27,6 +54,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   onClose,
   onSaved,
   editingProduct,
+  initialBillItem,
   session: _session,
   categories,
   defaultVendorId,
@@ -50,13 +78,80 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [saving, setSaving] = useState<boolean>(false);
   const [liveCalculation, setLiveCalculation] = useState<JewelleryPriceCalculationResult | null>(null);
 
-
+  // Inward GST & Bill Fields inside Product Form
+  const [itemDescription, setItemDescription] = useState<string>('');
+  const [hsnCode, setHsnCode] = useState<string>('');
+  const [discount, setDiscount] = useState<string | number>('0');
+  const [cgstRate, setCgstRate] = useState<string | number>('0');
+  const [sgstRate, setSgstRate] = useState<string | number>('0');
+  const [igstRate, setIgstRate] = useState<string | number>('0');
 
   const actualPurchasePriceCode = generateActualPurchasePriceCode(
     actualPurchasePrice !== '' && actualPurchasePrice !== null && actualPurchasePrice !== undefined
       ? actualPurchasePrice
       : null
   );
+
+  // Real-time Bill Line Item & GST Calculations
+  const numQty = parseFloat(String(stockQuantity || 0)) || 0;
+  const numRate =
+    purchasePrice !== '' && !isNaN(Number(purchasePrice))
+      ? Number(purchasePrice)
+      : actualPurchasePrice !== '' && !isNaN(Number(actualPurchasePrice))
+      ? Number(actualPurchasePrice)
+      : 0;
+  const numDisc = parseFloat(String(discount || 0)) || 0;
+  const grossAmount = Math.round(numQty * numRate * 100) / 100;
+  const taxableTotal = Math.max(0, Math.round((grossAmount - numDisc) * 100) / 100);
+
+  const numCgst = parseFloat(String(cgstRate || 0)) || 0;
+  const numSgst = parseFloat(String(sgstRate || 0)) || 0;
+  const numIgst = parseFloat(String(igstRate || 0)) || 0;
+
+  const cgstAmount = numCgst > 0 ? Math.round(taxableTotal * (numCgst / 100) * 100) / 100 : 0;
+  const sgstAmount = numSgst > 0 ? Math.round(taxableTotal * (numSgst / 100) * 100) / 100 : 0;
+  const igstAmount = numIgst > 0 ? Math.round(taxableTotal * (numIgst / 100) * 100) / 100 : 0;
+  const finalInwardTotal = Math.round((taxableTotal + cgstAmount + sgstAmount + igstAmount) * 100) / 100;
+
+  const handleSetGstPreset = (preset: string) => {
+    if (preset === '3_GST') {
+      setCgstRate(1.5);
+      setSgstRate(1.5);
+      setIgstRate(0);
+    } else if (preset === '5_GST') {
+      setCgstRate(2.5);
+      setSgstRate(2.5);
+      setIgstRate(0);
+    } else if (preset === '12_GST') {
+      setCgstRate(6);
+      setSgstRate(6);
+      setIgstRate(0);
+    } else if (preset === '18_GST') {
+      setCgstRate(9);
+      setSgstRate(9);
+      setIgstRate(0);
+    } else if (preset === '3_IGST') {
+      setCgstRate(0);
+      setSgstRate(0);
+      setIgstRate(3);
+    } else if (preset === '5_IGST') {
+      setCgstRate(0);
+      setSgstRate(0);
+      setIgstRate(5);
+    } else if (preset === '12_IGST') {
+      setCgstRate(0);
+      setSgstRate(0);
+      setIgstRate(12);
+    } else if (preset === '18_IGST') {
+      setCgstRate(0);
+      setSgstRate(0);
+      setIgstRate(18);
+    } else if (preset === 'EXEMPT') {
+      setCgstRate(0);
+      setSgstRate(0);
+      setIgstRate(0);
+    }
+  };
 
   const computeNumericActualPurchasePrice = (pVal: string | number, cVal: string | number): number | null => {
     if (pVal === '' || pVal === null || pVal === undefined) return null;
@@ -186,7 +281,30 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setLastEditedPricingField(null);
       setCategoryFields([]);
       setFieldValues({});
+      setItemDescription('');
+      setHsnCode('');
+      setDiscount('0');
+      setCgstRate('0');
+      setSgstRate('0');
+      setIgstRate('0');
       return;
+    }
+
+    // Set initial Bill Item specifics if provided
+    if (initialBillItem) {
+      setItemDescription(initialBillItem.itemDescription || '');
+      setHsnCode(initialBillItem.hsnCode || '');
+      setDiscount(initialBillItem.discount !== undefined && initialBillItem.discount !== null ? initialBillItem.discount : '0');
+      setCgstRate(initialBillItem.cgstRate !== undefined && initialBillItem.cgstRate !== null ? initialBillItem.cgstRate : '0');
+      setSgstRate(initialBillItem.sgstRate !== undefined && initialBillItem.sgstRate !== null ? initialBillItem.sgstRate : '0');
+      setIgstRate(initialBillItem.igstRate !== undefined && initialBillItem.igstRate !== null ? initialBillItem.igstRate : '0');
+    } else {
+      setItemDescription('');
+      setHsnCode('');
+      setDiscount('0');
+      setCgstRate('0');
+      setSgstRate('0');
+      setIgstRate('0');
     }
 
     if (editingProduct) {
@@ -199,11 +317,18 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       }
       setSelectedCategoryId(catIdToSet);
       setProductName(editingProduct.name);
-      setStockQuantity(editingProduct.stockQuantity ?? 0);
+      setStockQuantity(
+        initialBillItem?.quantityBought !== undefined && initialBillItem?.quantityBought !== null
+          ? initialBillItem.quantityBought
+          : (editingProduct.stockQuantity ?? 1)
+      );
 
       // Pre-fill existing field values
       const initialMap: Record<string, { valueText?: string; valueNumber?: number | string; valueBoolean?: boolean }> = {};
-      let initialPurchasePrice: string | number = editingProduct.purchasePrice ?? '';
+      let initialPurchasePrice: string | number =
+        initialBillItem?.unitCost !== undefined && initialBillItem?.unitCost !== null
+          ? initialBillItem.unitCost
+          : (editingProduct.purchasePrice ?? '');
       let initialPurchaseRatePerGram: string | number = editingProduct.purchaseRatePerGram ?? '';
       let initialPurchaseMakingChargesPerGram: string | number = editingProduct.purchaseMakingChargesPerGram ?? '';
       let initialAdditionalCharges: string | number = editingProduct.additionalChargesPercentage ?? '';
@@ -234,6 +359,18 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             initialMargin = fv.valueNumber !== null && fv.valueNumber !== undefined ? fv.valueNumber : '';
           }
         }
+
+        // Try extracting HSN if not passed via initialBillItem
+        if (!initialBillItem?.hsnCode) {
+          const hsnFv = editingProduct.fieldValues.find(
+            (fv) =>
+              fv.categoryField?.fieldKey?.toLowerCase().includes('hsn') ||
+              fv.categoryField?.name?.toLowerCase().includes('hsn')
+          );
+          if (hsnFv?.valueText) {
+            setHsnCode(hsnFv.valueText);
+          }
+        }
       }
       setFieldValues(initialMap);
       setPurchasePrice(initialPurchasePrice);
@@ -259,7 +396,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       }
     } else {
       setProductName('');
-      setStockQuantity('0');
+      setStockQuantity(initialBillItem?.quantityBought ? initialBillItem.quantityBought : '1');
       setPurchasePrice('');
       setPurchaseRatePerGram('');
       setPurchaseMakingChargesPerGram('');
@@ -279,7 +416,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         setFieldValues({});
       }
     }
-  }, [isOpen, editingProduct, categories]);
+  }, [isOpen, editingProduct, categories, initialBillItem]);
 
   const loadCategoryFields = async (
     catId: string,
@@ -568,22 +705,24 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     if (isJewelleryCategory) {
       const rpStr = String(purchaseRatePerGram ?? '').trim();
-      if (rpStr !== '') {
-        const rp = parseFloat(rpStr);
-        if (isNaN(rp)) {
-          showError('Purchase rate per gram must be a valid number.');
-          return;
-        }
-        if (rp < 0) {
-          showError('Purchase rate per gram cannot be negative.');
-          return;
-        }
-        if (rp > 1000000) {
-          showError('Purchase rate per gram cannot exceed ₹1,000,000.');
-          return;
-        }
-        parsedPurchaseRatePerGram = Math.round(rp * 100) / 100;
+      if (!rpStr) {
+        showError('Purchase Rate per Gram (₹/g) is required.');
+        return;
       }
+      const rp = parseFloat(rpStr);
+      if (isNaN(rp)) {
+        showError('Purchase rate per gram must be a valid number.');
+        return;
+      }
+      if (rp <= 0) {
+        showError('Purchase rate per gram must be greater than ₹0.');
+        return;
+      }
+      if (rp > 1000000) {
+        showError('Purchase rate per gram cannot exceed ₹1,000,000.');
+        return;
+      }
+      parsedPurchaseRatePerGram = Math.round(rp * 100) / 100;
 
       const mpStr = String(purchaseMakingChargesPerGram ?? '').trim();
       if (mpStr !== '') {
@@ -621,22 +760,24 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       }
     } else {
       const pStr = String(purchasePrice ?? '').trim();
-      if (pStr !== '') {
-        const p = parseFloat(pStr);
-        if (isNaN(p)) {
-          showError('Purchase price must be a valid number.');
-          return;
-        }
-        if (p < 0) {
-          showError('Purchase price cannot be negative.');
-          return;
-        }
-        if (p > 100000000) {
-          showError('Purchase price cannot exceed ₹100,000,000.');
-          return;
-        }
-        parsedPurchasePrice = Math.round(p * 100) / 100;
+      if (!pStr) {
+        showError('Purchase Price (₹) is required.');
+        return;
       }
+      const p = parseFloat(pStr);
+      if (isNaN(p)) {
+        showError('Purchase Price must be a valid number.');
+        return;
+      }
+      if (p <= 0) {
+        showError('Purchase Price must be greater than ₹0.');
+        return;
+      }
+      if (p > 100000000) {
+        showError('Purchase Price cannot exceed ₹100,000,000.');
+        return;
+      }
+      parsedPurchasePrice = Math.round(p * 100) / 100;
 
       if (parsedAdditionalCharges !== null && parsedAdditionalCharges > 0 && parsedPurchasePrice === null) {
         showError('Please enter a Purchase Price before applying Additional Cost (%).');
@@ -657,23 +798,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       const spStr = String(sellingPrice ?? '').trim();
       const mStr = String(margin ?? '').trim();
 
-      if (spStr !== '') {
-        const sp = parseFloat(spStr);
-        if (isNaN(sp)) {
-          showError('Selling price must be a valid number.');
-          return;
-        }
-        if (sp < 0) {
-          showError('Selling price cannot be negative.');
-          return;
-        }
-        if (sp > 100000000) {
-          showError('Selling price cannot exceed ₹100,000,000.');
-          return;
-        }
-        parsedSellingPrice = Math.round(sp * 100) / 100;
-      }
-
       if (mStr !== '') {
         const m = parseFloat(mStr);
         if (isNaN(m)) {
@@ -683,9 +807,29 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         parsedMargin = Math.round(m * 100) / 100;
       }
 
-      // If user filled margin but selling price was not calculated
-      if (parsedSellingPrice === null && parsedMargin !== null && parsedActualPurchasePrice !== null && parsedActualPurchasePrice > 0) {
+      // If user filled margin but selling price was not entered directly
+      if (spStr === '' && parsedMargin !== null && parsedActualPurchasePrice !== null && parsedActualPurchasePrice > 0) {
         parsedSellingPrice = Math.round((parsedActualPurchasePrice + (parsedActualPurchasePrice * parsedMargin / 100)) * 100) / 100;
+      } else if (spStr !== '') {
+        const sp = parseFloat(spStr);
+        if (isNaN(sp)) {
+          showError('Selling Price must be a valid number.');
+          return;
+        }
+        if (sp <= 0) {
+          showError('Selling Price must be greater than ₹0.');
+          return;
+        }
+        if (sp > 100000000) {
+          showError('Selling Price cannot exceed ₹100,000,000.');
+          return;
+        }
+        parsedSellingPrice = Math.round(sp * 100) / 100;
+      }
+
+      if (parsedSellingPrice === null || parsedSellingPrice <= 0) {
+        showError('Selling Price (₹) is required.');
+        return;
       }
 
       // If user filled selling price but margin was not calculated
@@ -895,17 +1039,42 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         valueNumber = isNaN(parsed) ? null : parsed;
       }
 
+      const isHsnField = f.fieldKey?.toLowerCase().includes('hsn') || f.name?.toLowerCase().includes('hsn');
+
       return {
         categoryFieldId: f.id,
-        valueText: f.fieldType === 'text' || f.fieldType === 'select' ? (val?.valueText?.trim() || null) : null,
+        valueText: isHsnField
+          ? (hsnCode.trim() || val?.valueText?.trim() || null)
+          : (f.fieldType === 'text' || f.fieldType === 'select' ? (val?.valueText?.trim() || null) : null),
         valueNumber,
         valueBoolean: f.fieldType === 'boolean' ? Boolean(val?.valueBoolean) : null,
       };
     });
 
+    const billDetailsPayload: FormBillItemDetails = {
+      itemDescription: itemDescription.trim(),
+      hsnCode: hsnCode.trim(),
+      quantityBought: parsedStock > 0 ? parsedStock : 1,
+      unitCost:
+        parsedPurchasePrice !== null && parsedPurchasePrice > 0
+          ? parsedPurchasePrice
+          : parsedActualPurchasePrice !== null && parsedActualPurchasePrice > 0
+          ? parsedActualPurchasePrice
+          : 0,
+      discount: numDisc,
+      taxableAmount: taxableTotal,
+      cgstRate: numCgst,
+      cgstAmount,
+      sgstRate: numSgst,
+      sgstAmount,
+      igstRate: numIgst,
+      igstAmount,
+      lineTotal: finalInwardTotal,
+    };
+
     setSaving(true);
     try {
-      if (editingProduct) {
+      if (editingProduct && !editingProduct.id.startsWith('draft_')) {
         const res = await ipcClient.updateProduct({
           id: editingProduct.id,
           categoryId: catId,
@@ -925,14 +1094,32 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         });
 
         if (res.success) {
-          onSaved(res.data);
+          onSaved(res.data, billDetailsPayload);
           onClose();
         } else {
           showError(res.error || 'Failed to update product.');
         }
       } else {
-        const res = await ipcClient.createProduct({
-          categoryId: selectedCategoryId,
+        // Creating a new product or updating a drafted product for this purchase bill.
+        // Keep in memory with generated barcode until purchase bill is officially saved to database.
+        const categoryName = selectedCategoryObj?.name || editingProduct?.categoryName || 'General';
+        let candidateBarcode = editingProduct?.barcode;
+        if (!candidateBarcode) {
+          const barcodeRes = await ipcClient.generateBarcode({
+            productName: trimmedName,
+            categoryName,
+          });
+          if (barcodeRes.success && barcodeRes.data) {
+            candidateBarcode = barcodeRes.data;
+          } else {
+            candidateBarcode = `P${Date.now()}`;
+          }
+        }
+
+        const draftId = editingProduct?.id || `draft_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+        const productDraftPayload: CreateProductRequest = {
+          categoryId: catId,
           name: trimmedName,
           stockQuantity: parsedStock,
           fieldValues: fieldValuesPayload,
@@ -946,14 +1133,50 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           marginPercentage: parsedMargin,
           vendorId: defaultVendorId || null,
           purchaseDate: defaultPurchaseDate || null,
-        });
+          barcode: candidateBarcode,
+        };
 
-        if (res.success) {
-          onSaved(res.data);
-          onClose();
-        } else {
-          showError(res.error || 'Failed to create product.');
-        }
+        const draftProductDto: ProductDto = {
+          id: draftId,
+          companyId: _session.companyId,
+          categoryId: catId,
+          categoryName,
+          vendorId: defaultVendorId || editingProduct?.vendorId || null,
+          purchaseDate: defaultPurchaseDate || editingProduct?.purchaseDate || null,
+          name: trimmedName,
+          barcode: candidateBarcode,
+          stockQuantity: parsedStock,
+          isArchived: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          fieldValues: fieldValuesPayload.map((fv) => {
+            const fieldObj = categoryFields.find((f) => f.id === fv.categoryFieldId);
+            return {
+              id: `fv_${fv.categoryFieldId}`,
+              productId: draftId,
+              categoryFieldId: fv.categoryFieldId,
+              valueText: fv.valueText ?? null,
+              valueNumber: fv.valueNumber ?? null,
+              valueBoolean: fv.valueBoolean ?? null,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              categoryField: fieldObj
+                ? {
+                    id: fieldObj.id,
+                    name: fieldObj.name,
+                    fieldKey: fieldObj.fieldKey,
+                    fieldType: fieldObj.fieldType,
+                    required: fieldObj.required,
+                    displayOrder: fieldObj.displayOrder,
+                    options: fieldObj.options ?? null,
+                  }
+                : undefined,
+            };
+          }),
+        };
+
+        onSaved(draftProductDto, billDetailsPayload, productDraftPayload);
+        onClose();
       }
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to save product.');
@@ -1111,7 +1334,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div>
                   <label htmlFor="product-stock-input" className="block text-xs font-medium text-stone-700">
-                    Stock Quantity <span className="text-rose-500">*</span>
+                    Stock Quantity / Inward Units <span className="text-rose-500">*</span>
                   </label>
                   <input
                     id="product-stock-input"
@@ -1126,7 +1349,46 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
                   />
                   <p className="mt-1 text-[10px] text-stone-500">
-                    Supports whole units or decimals (e.g. 50.5m)
+                    Units inwarded into store inventory
+                  </p>
+                </div>
+              </div>
+
+              {/* Item Description & HSN Code */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 pt-1">
+                <div className="sm:col-span-2">
+                  <label htmlFor="product-item-description-input" className="block text-xs font-medium text-stone-700">
+                    Item Description / Narration
+                  </label>
+                  <input
+                    id="product-item-description-input"
+                    type="text"
+                    value={itemDescription}
+                    onChange={(e) => setItemDescription(e.target.value)}
+                    placeholder="e.g. 22K Gold Handcrafted Bangle with floral carving (printed on bill)"
+                    disabled={saving}
+                    className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                  />
+                  <p className="mt-1 text-[10px] text-stone-500">
+                    Specific line item description for invoices
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="product-hsn-code-input" className="block text-xs font-medium text-stone-700">
+                    HSN / SAC Code
+                  </label>
+                  <input
+                    id="product-hsn-code-input"
+                    type="text"
+                    value={hsnCode}
+                    onChange={(e) => setHsnCode(e.target.value)}
+                    placeholder="e.g. 7113"
+                    disabled={saving}
+                    className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs font-mono font-semibold text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 uppercase"
+                  />
+                  <p className="mt-1 text-[10px] text-stone-500">
+                    Tariff code for GST reporting
                   </p>
                 </div>
               </div>
@@ -1158,7 +1420,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     {/* Purchase Rate per Gram (Rp) */}
                     <div>
                       <label htmlFor="product-purchase-rate-input" className="block text-xs font-medium text-stone-700">
-                        Purchase Rate (₹/g)
+                        Purchase Rate (₹/g) <span className="text-red-500 font-bold">*</span>
                       </label>
                       <div className="relative mt-1.5">
                         <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-stone-400">
@@ -1368,7 +1630,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     {/* Purchase Price Input */}
                     <div>
                       <label htmlFor="product-purchase-price-input" className="block text-xs font-medium text-stone-700">
-                        Purchase Price (₹)
+                        Purchase Price (₹) <span className="text-red-500 font-bold">*</span>
                       </label>
                       <div className="relative mt-1.5">
                         <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-stone-400">
@@ -1523,7 +1785,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                       <div>
                         <div className="flex items-center justify-between">
                           <label htmlFor="product-selling-price-input" className="block text-xs font-medium text-stone-700">
-                            Selling Price (₹)
+                            Selling Price (₹) <span className="text-red-500 font-bold">*</span>
                           </label>
                           {lastEditedPricingField === 'margin' && sellingPrice !== '' && (
                             <span className="text-[10px] text-emerald-700 font-semibold font-mono">
@@ -1611,6 +1873,218 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   </div>
                 </>
               )}
+            </div>
+
+            {/* Inward Billing, Discount & GST Rates Section */}
+            <div className="rounded-xl border border-cream-200 bg-cream-50/50 p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-stone-600">
+                    Inward Billing, Discount & GST Rates
+                  </h3>
+                  <p className="text-[11px] text-stone-500">
+                    Configure item discount and GST slab applied on this purchase entry.
+                  </p>
+                </div>
+                <span className="rounded bg-amber-100/70 border border-amber-300 px-2 py-0.5 text-[10px] font-semibold text-amber-900 font-mono">
+                  GST Calculation
+                </span>
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div>
+                <span className="block text-[11px] font-bold text-stone-600 mb-1.5">
+                  Quick GST Slab Selection:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: '3_GST', label: '3% GST (1.5+1.5) [Jewellery]' },
+                    { id: '5_GST', label: '5% GST (2.5+2.5)' },
+                    { id: '12_GST', label: '12% GST (6+6)' },
+                    { id: '18_GST', label: '18% GST (9+9)' },
+                    { id: '3_IGST', label: '3% IGST' },
+                    { id: '5_IGST', label: '5% IGST' },
+                    { id: '12_IGST', label: '12% IGST' },
+                    { id: '18_IGST', label: '18% IGST' },
+                    { id: 'EXEMPT', label: '0% Exempt' },
+                  ].map((slab) => {
+                    const isSelected =
+                      (slab.id === '3_GST' && numCgst === 1.5 && numSgst === 1.5 && numIgst === 0) ||
+                      (slab.id === '5_GST' && numCgst === 2.5 && numSgst === 2.5 && numIgst === 0) ||
+                      (slab.id === '12_GST' && numCgst === 6 && numSgst === 6 && numIgst === 0) ||
+                      (slab.id === '18_GST' && numCgst === 9 && numSgst === 9 && numIgst === 0) ||
+                      (slab.id === '3_IGST' && numIgst === 3 && numCgst === 0 && numSgst === 0) ||
+                      (slab.id === '5_IGST' && numIgst === 5 && numCgst === 0 && numSgst === 0) ||
+                      (slab.id === '12_IGST' && numIgst === 12 && numCgst === 0 && numSgst === 0) ||
+                      (slab.id === '18_IGST' && numIgst === 18 && numCgst === 0 && numSgst === 0) ||
+                      (slab.id === 'EXEMPT' && numCgst === 0 && numSgst === 0 && numIgst === 0);
+
+                    return (
+                      <button
+                        key={slab.id}
+                        type="button"
+                        onClick={() => handleSetGstPreset(slab.id)}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${
+                          isSelected
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'bg-white border border-cream-300 text-stone-700 hover:bg-cream-100'
+                        }`}
+                      >
+                        {slab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Discount, CGST, SGST, IGST inputs */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+                {/* Discount Input */}
+                <div>
+                  <label htmlFor="product-discount-input" className="block text-xs font-medium text-stone-700">
+                    Discount (₹)
+                  </label>
+                  <div className="relative mt-1.5">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-xs font-bold text-stone-400">
+                      ₹
+                    </span>
+                    <input
+                      id="product-discount-input"
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={discount}
+                      onChange={(e) => setDiscount(e.target.value)}
+                      placeholder="0"
+                      disabled={saving}
+                      className="w-full rounded-lg border border-cream-300 bg-white pl-7 pr-3 py-2 text-xs font-mono text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] text-stone-500">
+                    Deducted before tax
+                  </p>
+                </div>
+
+                {/* CGST Input */}
+                <div>
+                  <label htmlFor="product-cgst-input" className="block text-xs font-medium text-stone-700">
+                    CGST (%)
+                  </label>
+                  <div className="relative mt-1.5">
+                    <input
+                      id="product-cgst-input"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={cgstRate}
+                      onChange={(e) => setCgstRate(e.target.value)}
+                      placeholder="0"
+                      disabled={saving}
+                      className="w-full rounded-lg border border-cream-300 bg-white pr-7 pl-3 py-2 text-xs font-mono text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    />
+                    <span className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-xs font-bold text-stone-400">
+                      %
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-emerald-700 font-mono font-semibold">
+                    ₹{cgstAmount.toFixed(2)}
+                  </p>
+                </div>
+
+                {/* SGST Input */}
+                <div>
+                  <label htmlFor="product-sgst-input" className="block text-xs font-medium text-stone-700">
+                    SGST (%)
+                  </label>
+                  <div className="relative mt-1.5">
+                    <input
+                      id="product-sgst-input"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={sgstRate}
+                      onChange={(e) => setSgstRate(e.target.value)}
+                      placeholder="0"
+                      disabled={saving}
+                      className="w-full rounded-lg border border-cream-300 bg-white pr-7 pl-3 py-2 text-xs font-mono text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    />
+                    <span className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-xs font-bold text-stone-400">
+                      %
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-emerald-700 font-mono font-semibold">
+                    ₹{sgstAmount.toFixed(2)}
+                  </p>
+                </div>
+
+                {/* IGST Input */}
+                <div>
+                  <label htmlFor="product-igst-input" className="block text-xs font-medium text-stone-700">
+                    IGST (%)
+                  </label>
+                  <div className="relative mt-1.5">
+                    <input
+                      id="product-igst-input"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={igstRate}
+                      onChange={(e) => setIgstRate(e.target.value)}
+                      placeholder="0"
+                      disabled={saving}
+                      className="w-full rounded-lg border border-cream-300 bg-white pr-7 pl-3 py-2 text-xs font-mono text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600"
+                    />
+                    <span className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-xs font-bold text-stone-400">
+                      %
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-blue-700 font-mono font-semibold">
+                    ₹{igstAmount.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Inward Line Calculation Breakdown Card */}
+              <div className="rounded-xl border border-cream-300 bg-white p-3 space-y-2 text-xs">
+                <div className="flex items-center justify-between border-b border-cream-200 pb-1.5 font-bold text-stone-700">
+                  <span>Inward Line Item Calculation Summary</span>
+                  <span className="font-mono text-[11px] text-stone-500">
+                    {numQty} units × ₹{numRate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1 font-mono text-[11px]">
+                  <div className="rounded-lg bg-cream-50 p-2 border border-cream-200">
+                    <span className="text-[10px] text-stone-500 block font-sans">Taxable Value</span>
+                    <span className="font-bold text-stone-900 text-xs">
+                      ₹{taxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50/60 p-2 border border-emerald-200/60">
+                    <span className="text-[10px] text-emerald-800 block font-sans">CGST ({numCgst}%)</span>
+                    <span className="font-bold text-emerald-900 text-xs">
+                      ₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50/60 p-2 border border-emerald-200/60">
+                    <span className="text-[10px] text-emerald-800 block font-sans">SGST ({numSgst}%)</span>
+                    <span className="font-bold text-emerald-900 text-xs">
+                      ₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="rounded-lg bg-blue-50/60 p-2 border border-blue-200/60">
+                    <span className="text-[10px] text-blue-800 block font-sans">IGST ({numIgst}%)</span>
+                    <span className="font-bold text-blue-900 text-xs">
+                      ₹{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="rounded-lg bg-amber-100 p-2 border border-amber-300">
+                    <span className="text-[10px] text-amber-900 block font-sans font-bold">Final Total</span>
+                    <span className="font-black text-amber-950 text-xs">
+                      ₹{finalInwardTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Dynamic Category Fields Section */}

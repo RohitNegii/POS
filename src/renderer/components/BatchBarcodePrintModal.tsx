@@ -93,6 +93,18 @@ const SIZE_OPTIONS: SizeOption[] = [
     previewHeightPx: 180,
   },
   {
+    id: 'jewellery_85x15',
+    title: '85 × 15 mm (Jewellery Dumbbell Tag)',
+    widthMm: 85,
+    heightMm: 15,
+    dimensionsMm: '85 × 15 mm (Tag: 28 + 29 + 28 mm)',
+    dimensionsInches: '3.35" × 0.59"',
+    useCase: 'Jewellery dumbbell tag with Name, Barcode, Weight, Customer Making Charge (down-left), and Purchase Code (down-right)',
+    previewWidthPx: 420,
+    previewHeightPx: 80,
+    isJewellery: true,
+  },
+  {
     id: 'jewellery_100x13',
     title: '100 × 13 mm (BAR-CODING TECH® Tag)',
     widthMm: 100,
@@ -134,6 +146,8 @@ interface ResolvedItem {
   isGoldSilverJewellery: boolean;
   purityWeightDisplay: string | null;
   weightText: string | null;
+  makingChargeDisplay: string | null;
+  makingChargePerGram: number | null;
   product: ProductDto;
 }
 
@@ -196,6 +210,20 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
           : weightFv?.valueText || null;
 
       const purityWeightDisplay = [purityText, weightText].filter(Boolean).join(' • ') || null;
+
+      // Extract selling making charge per gram
+      const makingFv = matchedProd?.fieldValues?.find((fv) => {
+        const key = fv.categoryField?.fieldKey?.toLowerCase() || '';
+        const name = fv.categoryField?.name?.toLowerCase() || '';
+        return key === 'makingchargespergram' || key === 'makingchargepergram' || name.includes('making charge');
+      });
+      const makingChargePerGram =
+        makingFv?.valueNumber !== null && makingFv?.valueNumber !== undefined && Number(makingFv.valueNumber) > 0
+          ? Number(makingFv.valueNumber)
+          : matchedProd?.calculatedJewelleryPrice?.makingChargePerGram && matchedProd.calculatedJewelleryPrice.makingChargePerGram > 0
+          ? matchedProd.calculatedJewelleryPrice.makingChargePerGram
+          : null;
+      const makingChargeDisplay = makingChargePerGram !== null ? `MC: ₹${makingChargePerGram}/g` : null;
 
       // Extract purchase code (COMPLISENT cipher e.g. TTTCTT)
       const purchaseCode =
@@ -264,6 +292,8 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
         isGoldSilverJewellery: isGoldSilver,
         purityWeightDisplay,
         weightText,
+        makingChargeDisplay,
+        makingChargePerGram,
         product: finalProd,
       };
     });
@@ -279,7 +309,15 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
       if (savedPrefs.selectedSize === 'large' || savedPrefs.selectedSize === 'large_75x50') return 'large_60x40';
       return savedPrefs.selectedSize;
     }
-    return 'std_50x25';
+    const hasJewellery = purchase.items.some((it) => {
+      const prod = products.find((p) => p.id === it.productId);
+      return (
+        prod?.fieldValues?.some((fv) => fv.categoryField?.fieldKey?.toLowerCase() === 'purity') ||
+        it.categoryName?.toLowerCase().includes('gold') ||
+        it.categoryName?.toLowerCase().includes('silver')
+      );
+    });
+    return hasJewellery ? 'jewellery_85x15' : 'std_50x25';
   });
 
   const [customWidthMm, setCustomWidthMm] = useState<number>(savedPrefs?.customWidthMm || 50);
@@ -517,6 +555,22 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
       display: flex !important;
       flex-direction: row !important;
       justify-content: flex-start !important;
+      align-items: center !important;
+      text-align: left !important;
+      overflow: hidden !important;
+      transform: ${horizontalOffsetMm ? `translateX(${horizontalOffsetMm}mm)` : 'none'} !important;
+    }
+
+    /* Jewellery dumbbell tag page: Exactly 85mm x 15mm matching @page size and physical roll */
+    .barcode-label-page.barcode-label-jewellery-85x15 {
+      width: 85mm !important;
+      height: 15mm !important;
+      max-height: 15mm !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      display: flex !important;
+      flex-direction: row !important;
+      justify-content: space-between !important;
       align-items: center !important;
       text-align: left !important;
       overflow: hidden !important;
@@ -848,7 +902,63 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
               {/* Tag Preview Area */}
               <div className="flex flex-col items-center justify-center p-5 rounded-2xl border border-cream-200 bg-cream-100/70 min-h-[300px]">
                 {currentPreviewItem ? (
-                  selectedSize === 'jewellery_100x13' ? (
+                  selectedSize === 'jewellery_85x15' ? (
+                    /* 85mm x 15mm Jewellery Dumbbell Tag Preview */
+                    <div className="w-full max-w-lg flex flex-col items-center space-y-3">
+                      <div className="w-full flex justify-between text-[10px] text-stone-500 font-semibold px-2">
+                        <span>◄ Face Plate (28mm × 15mm) ►</span>
+                        <span>◄ Tail Loop (29mm) ►</span>
+                        <span>◄ Barcode (28mm × 15mm) ►</span>
+                      </div>
+
+                      <div className="w-full flex items-center bg-transparent drop-shadow-md">
+                        {/* Left Flap: 28mm */}
+                        <div className="w-[33%] h-[74px] bg-white rounded-l-md border-2 border-stone-800 p-1.5 flex flex-col justify-between text-left overflow-hidden relative">
+                          <div>
+                            {showProductName && (
+                              <div className="font-bold text-stone-900 text-[10px] leading-tight truncate" title={currentPreviewItem.name}>
+                                {currentPreviewItem.name}
+                              </div>
+                            )}
+                            <div className="font-semibold text-amber-900 text-[9px] leading-tight mt-0.5">
+                              {currentPreviewItem.purityWeightDisplay || (currentPreviewItem.weightText ? `Wt: ${currentPreviewItem.weightText}` : '')}
+                            </div>
+                          </div>
+
+                          {/* Down Left: Selling Making Charges, Down Right: Purchase Code */}
+                          <div className="w-full flex items-end justify-between text-[8px] font-bold text-stone-900 leading-none pt-1 border-t border-stone-200">
+                            <span className="text-amber-800 font-bold truncate max-w-[55%]">
+                              {currentPreviewItem.makingChargeDisplay || (currentPreviewItem.makingChargePerGram ? `MC: ₹${currentPreviewItem.makingChargePerGram}/g` : 'MC: -')}
+                            </span>
+                            <span className="font-mono text-stone-900 tracking-wider truncate max-w-[45%] text-right ml-auto">
+                              {showPurchaseCode && currentPreviewItem.purchaseCode ? currentPreviewItem.purchaseCode : ''}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Tail Loop: 29mm */}
+                        <div className="w-[34%] h-[24px] bg-stone-200/90 border-y-2 border-dashed border-stone-400 flex items-center justify-center relative overflow-hidden">
+                          <span className="text-[8px] font-semibold text-stone-600 tracking-tight whitespace-nowrap px-1">
+                            Tail Loop (29mm)
+                          </span>
+                        </div>
+
+                        {/* Right Flap: 28mm */}
+                        <div className="w-[33%] h-[74px] bg-white rounded-r-md border-2 border-stone-800 p-1 flex flex-col items-center justify-center text-center overflow-hidden">
+                          <BarcodeGraphic
+                            barcode={currentPreviewItem.barcode}
+                            size="jewellery_85x15"
+                            height={18}
+                            width={0.8}
+                            displayValue={false}
+                          />
+                          <div className="font-mono text-[8px] font-bold text-stone-800 tracking-wider mt-0.5">
+                            {currentPreviewItem.barcode}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : selectedSize === 'jewellery_100x13' ? (
                     /* 100mm x 13mm Jewellery Dumbbell Tag Preview */
                     <div className="w-full max-w-md flex flex-col items-center space-y-3">
                       <div className="w-full flex justify-between text-[10px] text-stone-500 font-semibold px-2">
@@ -1054,7 +1164,188 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
           }}
         >
           {printableList.map(({ item, copyNumber }) => (
-            selectedSize === 'jewellery_100x13' ? (
+            selectedSize === 'jewellery_85x15' ? (
+              /* 85mm x 15mm Jewellery Dumbbell Tag */
+              <div
+                key={`${item.id}-${copyNumber}`}
+                className="barcode-label-page barcode-label-jewellery-85x15"
+                style={{
+                  width: '85mm',
+                  height: '15mm',
+                  maxHeight: '15mm',
+                  margin: '0',
+                  padding: '0',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxSizing: 'border-box',
+                  overflow: 'hidden',
+                  background: '#ffffff',
+                  transform: horizontalOffsetMm ? `translateX(${horizontalOffsetMm}mm)` : undefined,
+                }}
+              >
+                {/* Left Flap: Exactly 28mm × 15mm */}
+                <div
+                  style={{
+                    width: '28mm',
+                    minWidth: '28mm',
+                    maxWidth: '28mm',
+                    height: '14mm',
+                    maxHeight: '14mm',
+                    boxSizing: 'border-box',
+                    padding: '0.5mm 1mm',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    textAlign: 'left',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div>
+                    {showProductName && (
+                      <div
+                        style={{
+                          fontSize: '6.5pt',
+                          fontWeight: 'bold',
+                          color: '#000000',
+                          lineHeight: 1.1,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title={item.name}
+                      >
+                        {item.name}
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        fontSize: '6pt',
+                        fontWeight: 600,
+                        color: '#000000',
+                        lineHeight: 1,
+                        marginTop: '0.3mm',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {item.purityWeightDisplay || (item.weightText ? `Wt: ${item.weightText}` : '')}
+                    </div>
+                  </div>
+
+                  {/* Down Left: Selling Making Charges, Down Right: Purchase Code */}
+                  <div
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'flex-end',
+                      justifyContent: 'space-between',
+                      lineHeight: 1,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: '5.5pt',
+                        fontWeight: 'bold',
+                        color: '#000000',
+                        textAlign: 'left',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: '16mm',
+                      }}
+                    >
+                      {item.makingChargeDisplay || (item.makingChargePerGram ? `MC: ₹${item.makingChargePerGram}/g` : '')}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '5.5pt',
+                        fontWeight: 'bold',
+                        fontFamily: 'monospace',
+                        color: '#000000',
+                        textAlign: 'right',
+                        marginLeft: 'auto',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {showPurchaseCode && item.purchaseCode ? item.purchaseCode : ''}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Center Tail: Exactly 29mm × 15mm non-adhesive tail loop (blank) */}
+                <div
+                  style={{
+                    width: '29mm',
+                    minWidth: '29mm',
+                    maxWidth: '29mm',
+                    height: '15mm',
+                    flexShrink: 0,
+                  }}
+                  aria-hidden="true"
+                />
+
+                {/* Right Flap: Exactly 28mm × 15mm */}
+                <div
+                  style={{
+                    width: '28mm',
+                    minWidth: '28mm',
+                    maxWidth: '28mm',
+                    height: '14mm',
+                    maxHeight: '14mm',
+                    boxSizing: 'border-box',
+                    padding: '0.5mm 1mm',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flex: '1 1 0%',
+                      minHeight: 0,
+                      maxHeight: '9mm',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <BarcodeGraphic
+                      barcode={item.barcode}
+                      size="jewellery_85x15"
+                      height={18}
+                      width={0.8}
+                      displayValue={false}
+                      className="h-full max-h-full"
+                    />
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: '5.5pt',
+                      fontWeight: 'bold',
+                      color: '#000000',
+                      letterSpacing: '0.05em',
+                      lineHeight: 1,
+                      marginTop: '0.3mm',
+                      textAlign: 'center',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {item.barcode}
+                  </div>
+                </div>
+              </div>
+            ) : selectedSize === 'jewellery_100x13' ? (
               /* BAR-CODING TECH® 100mm x 13mm Roll Tag */
               <div
                 key={`${item.id}-${copyNumber}`}

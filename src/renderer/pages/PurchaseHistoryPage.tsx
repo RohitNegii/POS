@@ -10,6 +10,7 @@ import { useToast } from '../context/ToastContext';
 import { usePurchases } from '../hooks/usePurchases';
 import { useVendors } from '../hooks/useVendors';
 import { useProducts } from '../hooks/useProducts';
+import { getLocalDateString } from '../../shared/utils/date';
 import { BarcodePrintModal } from '../components/BarcodePrintModal';
 import { BatchBarcodePrintModal } from '../components/BatchBarcodePrintModal';
 
@@ -110,7 +111,7 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
     setEditPaidAmount(String(p.paidAmount ?? (normMethod === 'NO_PAYMENT' ? 0 : p.totalAmount)));
     setEditPaymentDate(
       p.paymentDate ||
-      (normMethod !== 'NO_PAYMENT' ? (p.purchaseDate || new Date().toISOString().split('T')[0]) : '')
+      (normMethod !== 'NO_PAYMENT' ? (p.purchaseDate || getLocalDateString()) : '')
     );
     setEditNotes(p.notes || '');
   };
@@ -124,7 +125,7 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
     } else {
       setEditStatus('PAID');
       if (!editPaymentDate) {
-        setEditPaymentDate(new Date().toISOString().split('T')[0]);
+        setEditPaymentDate(getLocalDateString());
       }
       if (editingPurchase) {
         const cur = parseFloat(editPaidAmount) || 0;
@@ -145,7 +146,7 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
       const isNoPay = editMethod === 'NO_PAYMENT';
       const finalPaymentDate = isNoPay
         ? null
-        : (editPaymentDate.trim() || new Date().toISOString().split('T')[0]);
+        : (editPaymentDate.trim() || getLocalDateString());
 
       const updated = await updatePurchasePayment({
         id: editingPurchase.id,
@@ -449,14 +450,24 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                       {/* Vendor Name */}
                       <td className="px-4 py-4 whitespace-nowrap">
                         <div className="font-bold text-stone-900 text-xs">{purchase.vendorName}</div>
-                        {purchase.vendorPhone && (
-                          <div className="text-[11px] text-stone-400 mt-0.5">{purchase.vendorPhone}</div>
-                        )}
+                        <div className="flex items-center gap-2 text-[11px] text-stone-500 mt-0.5">
+                          {purchase.vendorPhone && <span>📞 {purchase.vendorPhone}</span>}
+                          {purchase.vendorGstNumber && (
+                            <span className="font-mono text-amber-900 font-semibold bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
+                              GST: {purchase.vendorGstNumber}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
-                      {/* Vendor Invoice Number */}
-                      <td className="px-4 py-4 whitespace-nowrap font-mono font-semibold text-stone-800">
-                        {purchase.invoiceNumber}
+                      {/* Vendor Invoice Number & E-Way Bill */}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="font-mono font-semibold text-stone-800">{purchase.invoiceNumber}</div>
+                        {purchase.ewayBillNumber && (
+                          <div className="text-[10px] font-mono text-emerald-800 font-medium bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.2 mt-0.5 inline-block">
+                            E-Way: {purchase.ewayBillNumber}
+                          </div>
+                        )}
                       </td>
 
                       {/* Purchase Date */}
@@ -617,73 +628,151 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                 </div>
               </div>
 
-              {/* Vendor & Payment Info Bar */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-cream-300 bg-cream-50/70 p-4">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
-                    Vendor / Supplier Information
-                  </span>
-                  <div className="text-base font-bold text-stone-900">
-                    {billPurchase.vendorName}
-                  </div>
-                  {billPurchase.vendorPhone ? (
-                    <div className="text-xs text-stone-600 mt-0.5">
-                      Phone: {billPurchase.vendorPhone}
+              {/* Vendor, Creditor & Transport Info Bar */}
+              {(() => {
+                const matchedVendor = vendors.find((v) => v.id === billPurchase.vendorId);
+                const creditorAddress = billPurchase.vendorAddress || matchedVendor?.address;
+                const creditorGst = billPurchase.vendorGstNumber || matchedVendor?.gstNumber;
+                const creditorPhone = billPurchase.vendorPhone || matchedVendor?.phoneNumber;
+                const bankName = matchedVendor?.bankName;
+                const accountNo = matchedVendor?.accountNumber;
+                const ifscCode = matchedVendor?.ifscCode;
+                const hasBank = bankName || accountNo || ifscCode;
+                const hasTransport = billPurchase.ewayBillNumber || billPurchase.transporterName || billPurchase.vehicleNumber;
+
+                return (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-xl border border-cream-300 bg-cream-50/70 p-4">
+                      {/* Creditor / Vendor Info */}
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
+                          Vendor / Creditor Details
+                        </span>
+                        <div className="text-base font-bold text-stone-900">
+                          {billPurchase.vendorName}
+                        </div>
+                        {creditorAddress && (
+                          <div className="text-xs text-stone-600 mt-1">
+                            <span className="text-stone-400 font-medium">Address: </span>
+                            {creditorAddress}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600 mt-1.5">
+                          {creditorPhone && (
+                            <div>
+                              <span className="text-stone-400 font-medium">Phone: </span>
+                              <strong>{creditorPhone}</strong>
+                            </div>
+                          )}
+                          {creditorGst && (
+                            <div>
+                              <span className="text-stone-400 font-medium">GSTIN: </span>
+                              <strong className="font-mono text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                {creditorGst}
+                              </strong>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Bank Details */}
+                        {hasBank && (
+                          <div className="mt-2.5 rounded-lg border border-cream-200 bg-white/80 p-2.5 text-xs">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block mb-1">
+                              Creditor Bank Account
+                            </span>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-stone-800">
+                              {bankName && <span><strong>Bank:</strong> {bankName}</span>}
+                              {accountNo && <span><strong>A/C:</strong> {accountNo}</span>}
+                              {ifscCode && <span><strong>IFSC:</strong> {ifscCode}</span>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Payment & Transport Status */}
+                      <div className="space-y-3">
+                        <div className="md:text-right">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
+                            Payment & Settlement
+                          </span>
+                          <div className="flex items-center gap-2 md:justify-end">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                                billPurchase.paymentStatus === 'PAID'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                  : billPurchase.paymentStatus === 'PARTIAL'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                  : 'bg-rose-50 text-rose-800 border-rose-300'
+                              }`}
+                            >
+                              {billPurchase.paymentStatus === 'UNPAID' ? 'No Payment' : billPurchase.paymentStatus} ({formatPaymentMethod(billPurchase.paymentMethod)})
+                            </span>
+                          </div>
+                          {(() => {
+                            const billPaymentDone =
+                              (billPurchase.paymentStatus === 'PAID' || billPurchase.paidAmount > 0) &&
+                              billPurchase.paymentMethod !== 'NO_PAYMENT';
+                            const effectiveBillPaymentDate =
+                              billPurchase.paymentDate || (billPaymentDone ? billPurchase.purchaseDate : null);
+
+                            return effectiveBillPaymentDate ? (
+                              <div className="text-[11px] text-stone-600 mt-1 md:text-right font-medium">
+                                Payment Date:{' '}
+                                <strong className="text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                  {effectiveBillPaymentDate}
+                                </strong>
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-stone-400 mt-1 md:text-right italic">
+                                Payment Date: <span className="font-medium">— (No Payment)</span>
+                              </div>
+                            );
+                          })()}
+                          <div className="text-xs text-stone-600 mt-1">
+                            Paid: <strong>₹{billPurchase.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                            {' '}• Balance: <strong className={billPurchase.balanceAmount > 0 ? 'text-rose-700' : 'text-stone-700'}>₹{billPurchase.balanceAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                        </div>
+
+                        {/* Transport / E-Way Box */}
+                        {hasTransport && (
+                          <div className="rounded-lg border border-cream-200 bg-white/80 p-2.5 text-xs">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block mb-1">
+                              E-Way Bill & Transport Details
+                            </span>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-stone-700">
+                              {billPurchase.ewayBillNumber && (
+                                <div>
+                                  <span className="text-stone-400">E-Way Bill: </span>
+                                  <strong className="font-mono text-emerald-800">{billPurchase.ewayBillNumber}</strong>
+                                </div>
+                              )}
+                              {billPurchase.transporterName && (
+                                <div>
+                                  <span className="text-stone-400">Transporter: </span>
+                                  <strong className="text-stone-800">{billPurchase.transporterName}</strong>
+                                </div>
+                              )}
+                              {billPurchase.vehicleNumber && (
+                                <div>
+                                  <span className="text-stone-400">Vehicle No: </span>
+                                  <strong className="font-mono text-stone-800">{billPurchase.vehicleNumber}</strong>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  ) : (
-                    <div className="text-xs text-stone-400 mt-0.5">No contact number logged</div>
-                  )}
-                </div>
-
-                <div className="sm:text-right">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
-                    Payment & Settlement
-                  </span>
-                  <div className="flex items-center gap-2 sm:justify-end">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold border ${
-                        billPurchase.paymentStatus === 'PAID'
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                          : billPurchase.paymentStatus === 'PARTIAL'
-                          ? 'bg-amber-50 text-amber-800 border-amber-300'
-                          : 'bg-rose-50 text-rose-800 border-rose-300'
-                      }`}
-                    >
-                      {billPurchase.paymentStatus === 'UNPAID' ? 'No Payment' : billPurchase.paymentStatus} ({formatPaymentMethod(billPurchase.paymentMethod)})
-                    </span>
                   </div>
-                  {(() => {
-                    const billPaymentDone =
-                      (billPurchase.paymentStatus === 'PAID' || billPurchase.paidAmount > 0) &&
-                      billPurchase.paymentMethod !== 'NO_PAYMENT';
-                    const effectiveBillPaymentDate =
-                      billPurchase.paymentDate || (billPaymentDone ? billPurchase.purchaseDate : null);
-
-                    return effectiveBillPaymentDate ? (
-                      <div className="text-[11px] text-stone-600 mt-1 sm:text-right font-medium">
-                        Payment Date:{' '}
-                        <strong className="text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                          {effectiveBillPaymentDate}
-                        </strong>
-                      </div>
-                    ) : (
-                      <div className="text-[11px] text-stone-400 mt-1 sm:text-right italic">
-                        Payment Date: <span className="font-medium">— (No Payment)</span>
-                      </div>
-                    );
-                  })()}
-                  <div className="text-xs text-stone-600 mt-1">
-                    Paid: <strong>₹{billPurchase.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                    {' '}• Balance: <strong className={billPurchase.balanceAmount > 0 ? 'text-rose-700' : 'text-stone-700'}>₹{billPurchase.balanceAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Purchased Products Table */}
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-stone-700 flex items-center gap-2">
-                    <span>Purchased Products & Inventory Line Items ({billPurchase.items.length})</span>
+                    <span>Purchased Products & Line Items ({billPurchase.items.length})</span>
                     <span className="text-[11px] text-stone-400 font-normal">
                       • Total: {billPurchase.totalUnitsBought} units
                     </span>
@@ -704,61 +793,100 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-cream-300">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-left text-xs min-w-[950px]">
                     <thead className="border-b border-cream-200 bg-cream-100/80 font-bold text-stone-700 uppercase tracking-wider">
                       <tr>
-                        <th className="px-3.5 py-2.5 text-center w-10">#</th>
-                        <th className="px-3.5 py-2.5">Product Name</th>
-                        <th className="px-3.5 py-2.5">Category</th>
-                        <th className="px-3.5 py-2.5">Barcode</th>
-                        <th className="px-3.5 py-2.5 text-center">Purchased Qty</th>
-                        <th className="px-3.5 py-2.5 text-center">Current Stock</th>
-                        <th className="px-3.5 py-2.5 text-right">Unit Cost (₹)</th>
-                        <th className="px-3.5 py-2.5 text-right">Line Total (₹)</th>
-                        <th className="px-3.5 py-2.5 text-right">Print Barcode</th>
+                        <th className="px-3 py-2.5 text-center w-8">#</th>
+                        <th className="px-3 py-2.5 min-w-[180px]">Item Description</th>
+                        <th className="px-3 py-2.5 w-20">HSN</th>
+                        <th className="px-3 py-2.5 text-center w-16">Qty</th>
+                        <th className="px-3 py-2.5 text-right w-20">Rate (₹)</th>
+                        <th className="px-3 py-2.5 text-right w-16">Disc (₹)</th>
+                        <th className="px-3 py-2.5 text-right w-22">Total (₹)</th>
+                        <th className="px-3 py-2.5 text-right w-20">CGST</th>
+                        <th className="px-3 py-2.5 text-right w-20">SGST</th>
+                        <th className="px-3 py-2.5 text-right w-20">IGST</th>
+                        <th className="px-3 py-2.5 text-right w-24">Final Total (₹)</th>
+                        <th className="px-3 py-2.5 text-right w-18">Barcode</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-cream-200 bg-white">
-                      {billPurchase.items.map((item, idx) => (
-                        <tr key={item.id} className="hover:bg-cream-50/50">
-                          <td className="px-3.5 py-3 text-center text-stone-400 font-bold">
-                            {idx + 1}
-                          </td>
-                          <td className="px-3.5 py-3 font-bold text-stone-900">
-                            {item.productName}
-                          </td>
-                          <td className="px-3.5 py-3 text-stone-500">
-                            {item.categoryName || 'General'}
-                          </td>
-                          <td className="px-3.5 py-3 font-mono font-bold text-amber-800">
-                            {item.barcode}
-                          </td>
-                          <td className="px-3.5 py-3 text-center font-bold text-blue-800">
-                            {item.quantityBought}
-                          </td>
-                          <td className="px-3.5 py-3 text-center text-stone-600 font-medium">
-                            {item.currentStock}
-                          </td>
-                          <td className="px-3.5 py-3 text-right font-mono text-stone-800">
-                            ₹{item.unitCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-3.5 py-3 text-right font-mono font-bold text-stone-900">
-                            ₹{item.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-3.5 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handlePrintItemBarcode(item.productId, item.barcode, item.quantityBought)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-900 transition"
-                            >
-                              <svg className="h-3 w-3 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                              </svg>
-                              Print ({item.quantityBought})
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {billPurchase.items.map((item, idx) => {
+                        const taxable = item.taxableAmount !== undefined && item.taxableAmount !== null
+                          ? item.taxableAmount
+                          : Math.max(0, item.quantityBought * item.unitCost - (item.discount || 0));
+
+                        return (
+                          <tr key={item.id} className="hover:bg-cream-50/50">
+                            <td className="px-3 py-2.5 text-center text-stone-400 font-bold">
+                              {idx + 1}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="font-bold text-stone-900">{item.productName}</div>
+                              <div className="flex items-center gap-1.5 text-[10px] text-stone-400 mt-0.5">
+                                <span>{item.categoryName || 'General'}</span>
+                                <span className="font-mono text-amber-800 font-semibold">{item.barcode}</span>
+                              </div>
+                              {item.itemDescription && (
+                                <div className="text-[11px] text-stone-600 italic mt-0.5">{item.itemDescription}</div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 font-mono text-stone-700">
+                              {item.hsnCode || '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-center font-bold text-stone-900">
+                              {item.quantityBought}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-stone-800">
+                              ₹{item.unitCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-stone-600">
+                              {item.discount && item.discount > 0
+                                ? `₹${item.discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                                : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono font-semibold text-stone-900">
+                              ₹{taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-emerald-800">
+                              {item.cgstRate && item.cgstRate > 0 ? (
+                                <div>
+                                  <div className="text-[10px] text-stone-400">{item.cgstRate}%</div>
+                                  <div>₹{(item.cgstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                                </div>
+                              ) : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-emerald-800">
+                              {item.sgstRate && item.sgstRate > 0 ? (
+                                <div>
+                                  <div className="text-[10px] text-stone-400">{item.sgstRate}%</div>
+                                  <div>₹{(item.sgstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                                </div>
+                              ) : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-blue-800">
+                              {item.igstRate && item.igstRate > 0 ? (
+                                <div>
+                                  <div className="text-[10px] text-stone-400">{item.igstRate}%</div>
+                                  <div>₹{(item.igstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                                </div>
+                              ) : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono font-bold text-amber-900">
+                              ₹{item.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2.5 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handlePrintItemBarcode(item.productId, item.barcode, item.quantityBought)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900 transition"
+                              >
+                                Print
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -775,38 +903,83 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                   )}
                 </div>
 
-                <div className="w-full sm:w-72 space-y-2 rounded-xl border border-cream-300 bg-cream-50/70 p-4">
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Subtotal:</span>
-                    <span className="font-bold text-stone-900 font-mono">
-                      ₹{billPurchase.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Tax / GST:</span>
-                    <span className="font-bold text-stone-900 font-mono">
-                      ₹{billPurchase.taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="border-t border-cream-300 pt-2 flex justify-between text-sm font-black text-stone-900">
-                    <span>Grand Total:</span>
-                    <span className="text-amber-700 font-mono">
-                      ₹{billPurchase.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Amount Paid:</span>
-                    <span className="font-bold text-emerald-700 font-mono">
-                      ₹{billPurchase.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Outstanding Balance:</span>
-                    <span className={`font-bold font-mono ${billPurchase.balanceAmount > 0 ? 'text-rose-700' : 'text-stone-700'}`}>
-                      ₹{billPurchase.balanceAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
+                {(() => {
+                  const billCgstTotal = Math.round(billPurchase.items.reduce((acc, it) => acc + (it.cgstAmount || 0), 0) * 100) / 100;
+                  const billSgstTotal = Math.round(billPurchase.items.reduce((acc, it) => acc + (it.sgstAmount || 0), 0) * 100) / 100;
+                  const billIgstTotal = Math.round(billPurchase.items.reduce((acc, it) => acc + (it.igstAmount || 0), 0) * 100) / 100;
+                  const billTaxableTotal = Math.round(
+                    billPurchase.items.reduce(
+                      (acc, it) =>
+                        acc +
+                        (it.taxableAmount !== undefined && it.taxableAmount !== null
+                          ? it.taxableAmount
+                          : Math.max(0, it.quantityBought * it.unitCost - (it.discount || 0))),
+                      0
+                    ) * 100
+                  ) / 100;
+                  const totalGst = Math.round((billCgstTotal + billSgstTotal + billIgstTotal) * 100) / 100;
+
+                  return (
+                    <div className="w-full sm:w-80 space-y-1.5 rounded-xl border border-cream-300 bg-cream-50/70 p-4 text-xs">
+                      <div className="flex justify-between text-stone-600">
+                        <span>Taxable Amount (Total):</span>
+                        <span className="font-bold text-stone-900 font-mono">
+                          ₹{billTaxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      {billCgstTotal > 0 && (
+                        <div className="flex justify-between text-emerald-800">
+                          <span>CGST Total:</span>
+                          <span className="font-bold font-mono">
+                            ₹{billCgstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+                      {billSgstTotal > 0 && (
+                        <div className="flex justify-between text-emerald-800">
+                          <span>SGST Total:</span>
+                          <span className="font-bold font-mono">
+                            ₹{billSgstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+                      {billIgstTotal > 0 && (
+                        <div className="flex justify-between text-blue-800">
+                          <span>IGST Total:</span>
+                          <span className="font-bold font-mono">
+                            ₹{billIgstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+                      {totalGst > 0 && (
+                        <div className="flex justify-between text-stone-600 font-semibold border-t border-cream-200 pt-1">
+                          <span>Total GST Tax:</span>
+                          <span className="font-mono">
+                            ₹{totalGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+                      <div className="border-t border-cream-300 pt-2 flex justify-between text-sm font-black text-stone-900">
+                        <span>Final Bill Total:</span>
+                        <span className="text-amber-700 font-mono">
+                          ₹{billPurchase.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-stone-600 pt-1">
+                        <span>Amount Paid:</span>
+                        <span className="font-bold text-emerald-700 font-mono">
+                          ₹{billPurchase.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-stone-600">
+                        <span>Outstanding Balance:</span>
+                        <span className={`font-bold font-mono ${billPurchase.balanceAmount > 0 ? 'text-rose-700' : 'text-stone-700'}`}>
+                          ₹{billPurchase.balanceAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 

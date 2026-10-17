@@ -9,7 +9,7 @@ import { ipcClient } from '../services/ipcClient';
 
 export function useProducts(initialFilter?: ListProductsFilter) {
   const [products, setProducts] = useState<ProductDto[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ListProductsFilter>(initialFilter || {});
@@ -34,6 +34,10 @@ export function useProducts(initialFilter?: ListProductsFilter) {
   useEffect(() => {
     void loadProducts(filter);
   }, [filter, loadProducts]);
+
+  const refreshProducts = useCallback(() => {
+    return loadProducts(filter);
+  }, [loadProducts, filter]);
 
   const createProduct = async (input: CreateProductRequest): Promise<ProductDto | null> => {
     setSaving(true);
@@ -135,7 +139,7 @@ export function useProducts(initialFilter?: ListProductsFilter) {
     error,
     filter,
     setFilter,
-    refreshProducts: () => loadProducts(filter),
+    refreshProducts,
     upsertProductInList,
     createProduct,
     updateProduct,

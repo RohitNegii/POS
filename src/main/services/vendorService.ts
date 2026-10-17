@@ -50,6 +50,11 @@ export class VendorService {
         companyId: v.companyId,
         name: v.name,
         phoneNumber: v.phoneNumber,
+        address: v.address,
+        gstNumber: v.gstNumber,
+        bankName: v.bankName,
+        accountNumber: v.accountNumber,
+        ifscCode: v.ifscCode,
         createdAt: v.createdAt.toISOString(),
         updatedAt: v.updatedAt.toISOString(),
         purchasesCount,
@@ -90,6 +95,11 @@ export class VendorService {
       companyId: vendor.companyId,
       name: vendor.name,
       phoneNumber: vendor.phoneNumber,
+      address: vendor.address,
+      gstNumber: vendor.gstNumber,
+      bankName: vendor.bankName,
+      accountNumber: vendor.accountNumber,
+      ifscCode: vendor.ifscCode,
       createdAt: vendor.createdAt.toISOString(),
       updatedAt: vendor.updatedAt.toISOString(),
       purchasesCount,
@@ -117,6 +127,12 @@ export class VendorService {
       throw new Error('Phone number cannot exceed 30 characters.');
     }
 
+    const address = input.address?.trim() || null;
+    const gstNumber = input.gstNumber?.trim() || null;
+    const bankName = input.bankName?.trim() || null;
+    const accountNumber = input.accountNumber?.trim() || null;
+    const ifscCode = input.ifscCode?.trim() || null;
+
     // Check duplicate name within company
     const existing = await prisma.vendor.findFirst({
       where: {
@@ -134,6 +150,11 @@ export class VendorService {
         companyId,
         name,
         phoneNumber,
+        address,
+        gstNumber,
+        bankName,
+        accountNumber,
+        ifscCode,
       },
     });
 
@@ -142,6 +163,11 @@ export class VendorService {
       companyId: vendor.companyId,
       name: vendor.name,
       phoneNumber: vendor.phoneNumber,
+      address: vendor.address,
+      gstNumber: vendor.gstNumber,
+      bankName: vendor.bankName,
+      accountNumber: vendor.accountNumber,
+      ifscCode: vendor.ifscCode,
       createdAt: vendor.createdAt.toISOString(),
       updatedAt: vendor.updatedAt.toISOString(),
       purchasesCount: 0,
@@ -181,6 +207,12 @@ export class VendorService {
       throw new Error('Phone number cannot exceed 30 characters.');
     }
 
+    const address = input.address !== undefined ? (input.address?.trim() || null) : existing.address;
+    const gstNumber = input.gstNumber !== undefined ? (input.gstNumber?.trim() || null) : existing.gstNumber;
+    const bankName = input.bankName !== undefined ? (input.bankName?.trim() || null) : existing.bankName;
+    const accountNumber = input.accountNumber !== undefined ? (input.accountNumber?.trim() || null) : existing.accountNumber;
+    const ifscCode = input.ifscCode !== undefined ? (input.ifscCode?.trim() || null) : existing.ifscCode;
+
     // Check duplicate name if renamed
     if (name.toLowerCase() !== existing.name.toLowerCase()) {
       const duplicate = await prisma.vendor.findFirst({
@@ -201,6 +233,11 @@ export class VendorService {
       data: {
         name,
         phoneNumber,
+        address,
+        gstNumber,
+        bankName,
+        accountNumber,
+        ifscCode,
       },
       include: {
         purchases: {
@@ -221,6 +258,11 @@ export class VendorService {
       companyId: updated.companyId,
       name: updated.name,
       phoneNumber: updated.phoneNumber,
+      address: updated.address,
+      gstNumber: updated.gstNumber,
+      bankName: updated.bankName,
+      accountNumber: updated.accountNumber,
+      ifscCode: updated.ifscCode,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),
       purchasesCount,
@@ -239,7 +281,7 @@ export class VendorService {
       where: { id },
       include: {
         _count: {
-          select: { purchases: true },
+          select: { purchases: true, products: true },
         },
       },
     });
@@ -251,6 +293,12 @@ export class VendorService {
     if (existing._count.purchases > 0) {
       throw new Error(
         `Cannot delete vendor "${existing.name}": This vendor is linked to ${existing._count.purchases} purchase record(s).`
+      );
+    }
+
+    if (existing._count.products > 0) {
+      throw new Error(
+        `Cannot delete vendor "${existing.name}": This vendor is linked to ${existing._count.products} product(s) in your catalog. Please reassign or update those products before deleting this vendor.`
       );
     }
 

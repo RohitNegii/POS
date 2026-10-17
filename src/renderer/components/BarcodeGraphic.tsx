@@ -9,6 +9,7 @@ export type BarcodePrintSize =
   | 'small_38x25'
   | 'large_60x40'
   | 'jewellery_100x13'
+  | 'jewellery_85x15'
   | 'custom'
   // Backward compatibility aliases
   | 'small'
@@ -77,6 +78,13 @@ const SIZE_PRESETS: Record<
   jewellery_100x13: {
     width: 0.8,
     height: 16,
+    fontSize: 7,
+    margin: 1,
+  },
+  // 85 x 15 mm Jewellery Dumbbell Tag
+  jewellery_85x15: {
+    width: 0.8,
+    height: 18,
     fontSize: 7,
     margin: 1,
   },

@@ -21,6 +21,7 @@ export const IPC_CHANNELS = {
   PRODUCT_GET_BY_ID: 'product:get-by-id',
   PRODUCT_DELETE: 'product:delete',
   PRODUCT_PRINT_BARCODE: 'product:print-barcode',
+  PRODUCT_GENERATE_BARCODE: 'product:generate-barcode',
   METAL_RATE_GET_CURRENT: 'metal-rate:get-current',
   METAL_RATE_SAVE_DAILY: 'metal-rate:save-daily',
   METAL_RATE_GET_HISTORY: 'metal-rate:get-history',

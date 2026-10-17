@@ -354,6 +354,30 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS "vendors_company_id_idx" ON "vendors"("company_id");
   `);
 
+  // Migrate any existing vendors table columns
+  try {
+    const vCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("vendors");');
+    if (Array.isArray(vCols)) {
+      if (!vCols.some((c) => c.name === 'address')) {
+        await client.$executeRawUnsafe('ALTER TABLE "vendors" ADD COLUMN "address" TEXT;');
+      }
+      if (!vCols.some((c) => c.name === 'gst_number')) {
+        await client.$executeRawUnsafe('ALTER TABLE "vendors" ADD COLUMN "gst_number" TEXT;');
+      }
+      if (!vCols.some((c) => c.name === 'bank_name')) {
+        await client.$executeRawUnsafe('ALTER TABLE "vendors" ADD COLUMN "bank_name" TEXT;');
+      }
+      if (!vCols.some((c) => c.name === 'account_number')) {
+        await client.$executeRawUnsafe('ALTER TABLE "vendors" ADD COLUMN "account_number" TEXT;');
+      }
+      if (!vCols.some((c) => c.name === 'ifsc_code')) {
+        await client.$executeRawUnsafe('ALTER TABLE "vendors" ADD COLUMN "ifsc_code" TEXT;');
+      }
+    }
+  } catch (err) {
+    console.warn('[DB] Notice during vendors column migration:', err);
+  }
+
   // Idempotent bootstrap for purchases table (Bill-Wise Purchase Module)
   await client.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "purchases" (
@@ -363,6 +387,9 @@ export async function initializeDatabase(): Promise<void> {
       "vendor_id" TEXT NOT NULL,
       "invoice_number" TEXT NOT NULL DEFAULT '',
       "purchase_date" TEXT NOT NULL,
+      "eway_bill_number" TEXT,
+      "transporter_name" TEXT,
+      "vehicle_number" TEXT,
       "subtotal" REAL NOT NULL DEFAULT 0,
       "tax_amount" REAL NOT NULL DEFAULT 0,
       "total_amount" REAL NOT NULL DEFAULT 0,
@@ -387,6 +414,15 @@ export async function initializeDatabase(): Promise<void> {
       }
       if (!pCols.some((c) => c.name === 'invoice_number')) {
         await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "invoice_number" TEXT NOT NULL DEFAULT "";');
+      }
+      if (!pCols.some((c) => c.name === 'eway_bill_number')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "eway_bill_number" TEXT;');
+      }
+      if (!pCols.some((c) => c.name === 'transporter_name')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "transporter_name" TEXT;');
+      }
+      if (!pCols.some((c) => c.name === 'vehicle_number')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "vehicle_number" TEXT;');
       }
       if (!pCols.some((c) => c.name === 'subtotal')) {
         await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "subtotal" REAL NOT NULL DEFAULT 0;');
@@ -463,12 +499,22 @@ export async function initializeDatabase(): Promise<void> {
       "purchase_id" TEXT NOT NULL,
       "product_id" TEXT,
       "product_name" TEXT NOT NULL,
+      "item_description" TEXT,
       "barcode" TEXT NOT NULL,
       "category_name" TEXT,
+      "hsn_code" TEXT,
       "quantity_bought" REAL NOT NULL DEFAULT 0,
       "unit_cost" REAL NOT NULL DEFAULT 0,
+      "discount" REAL NOT NULL DEFAULT 0,
+      "taxable_amount" REAL NOT NULL DEFAULT 0,
       "tax_rate" REAL NOT NULL DEFAULT 0,
       "tax_amount" REAL NOT NULL DEFAULT 0,
+      "cgst_rate" REAL NOT NULL DEFAULT 0,
+      "cgst_amount" REAL NOT NULL DEFAULT 0,
+      "sgst_rate" REAL NOT NULL DEFAULT 0,
+      "sgst_amount" REAL NOT NULL DEFAULT 0,
+      "igst_rate" REAL NOT NULL DEFAULT 0,
+      "igst_amount" REAL NOT NULL DEFAULT 0,
       "total_amount" REAL NOT NULL DEFAULT 0,
       "details_json" TEXT,
       "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -482,11 +528,41 @@ export async function initializeDatabase(): Promise<void> {
   try {
     const itemCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("purchase_items");');
     if (Array.isArray(itemCols)) {
+      if (!itemCols.some((c) => c.name === 'item_description')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "item_description" TEXT;');
+      }
+      if (!itemCols.some((c) => c.name === 'hsn_code')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "hsn_code" TEXT;');
+      }
+      if (!itemCols.some((c) => c.name === 'discount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "discount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'taxable_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "taxable_amount" REAL NOT NULL DEFAULT 0;');
+      }
       if (!itemCols.some((c) => c.name === 'tax_rate')) {
         await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "tax_rate" REAL NOT NULL DEFAULT 0;');
       }
       if (!itemCols.some((c) => c.name === 'tax_amount')) {
         await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "tax_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'cgst_rate')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "cgst_rate" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'cgst_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "cgst_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'sgst_rate')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "sgst_rate" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'sgst_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "sgst_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'igst_rate')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "igst_rate" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!itemCols.some((c) => c.name === 'igst_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "igst_amount" REAL NOT NULL DEFAULT 0;');
       }
       if (!itemCols.some((c) => c.name === 'details_json')) {
         await client.$executeRawUnsafe('ALTER TABLE "purchase_items" ADD COLUMN "details_json" TEXT;');

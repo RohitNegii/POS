@@ -244,6 +244,7 @@ export interface ProductFieldValueInput {
 export interface CreateProductRequest {
   categoryId: string;
   name: string;
+  barcode?: string;
   stockQuantity?: number;
   fieldValues: ProductFieldValueInput[];
   purchasePrice?: number | null;
@@ -312,6 +313,7 @@ export interface PosDesktopApi {
   getMetalRateHistory: () => Promise<IpcResult<MetalRateHistoryItemDto[]>>;
   calculateJewelleryPrice: (input: JewelleryCalculationInput) => Promise<IpcResult<JewelleryPriceCalculationResult>>;
   printBarcode: (input: string | { html: string; widthMm: number; heightMm: number }) => Promise<IpcResult<{ printed: boolean }>>;
+  generateBarcode: (input: { productName: string; categoryName: string }) => Promise<IpcResult<string>>;
   scanBillingProduct: (barcode: string) => Promise<IpcResult<ScannedProductDto>>;
   searchBillingProducts: (query?: string) => Promise<IpcResult<ScannedProductDto[]>>;
   createBill: (input: CreateBillRequest) => Promise<IpcResult<BillDto>>;
@@ -431,6 +433,11 @@ export interface VendorDto {
   companyId: string;
   name: string;
   phoneNumber?: string | null;
+  address?: string | null;
+  gstNumber?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  ifscCode?: string | null;
   createdAt: string;
   updatedAt: string;
   purchasesCount?: number;
@@ -440,12 +447,22 @@ export interface VendorDto {
 export interface CreateVendorRequest {
   name: string;
   phoneNumber?: string | null;
+  address?: string | null;
+  gstNumber?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  ifscCode?: string | null;
 }
 
 export interface UpdateVendorRequest {
   id: string;
   name: string;
   phoneNumber?: string | null;
+  address?: string | null;
+  gstNumber?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  ifscCode?: string | null;
 }
 
 export type PurchasePaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID';
@@ -456,13 +473,23 @@ export interface PurchaseItemDto {
   purchaseId: string;
   productId: string | null;
   productName: string;
+  itemDescription?: string | null;
   barcode: string;
   categoryName: string | null;
+  hsnCode?: string | null;
   quantityBought: number;
   currentStock: number;
   unitCost: number;
+  discount?: number;
+  taxableAmount?: number;
   taxRate?: number;
   taxAmount?: number;
+  cgstRate?: number;
+  cgstAmount?: number;
+  sgstRate?: number;
+  sgstAmount?: number;
+  igstRate?: number;
+  igstAmount?: number;
   totalAmount: number;
   detailsJson?: string | null;
   createdAt: string;
@@ -476,8 +503,16 @@ export interface PurchaseDto {
   vendorId: string;
   vendorName: string;
   vendorPhone?: string | null;
+  vendorAddress?: string | null;
+  vendorGstNumber?: string | null;
+  vendorBankName?: string | null;
+  vendorAccountNumber?: string | null;
+  vendorIfscCode?: string | null;
   invoiceNumber: string;
   purchaseDate: string; // 'YYYY-MM-DD'
+  ewayBillNumber?: string | null;
+  transporterName?: string | null;
+  vehicleNumber?: string | null;
   paymentDate?: string | null; // 'YYYY-MM-DD'
   subtotal: number;
   taxAmount: number;
@@ -496,17 +531,35 @@ export interface PurchaseDto {
 
 export interface CreatePurchaseItemInput {
   productId: string;
+  productName?: string;
+  itemDescription?: string;
+  barcode?: string;
+  categoryName?: string;
+  hsnCode?: string;
   quantityBought: number;
   unitCost: number;
+  discount?: number;
+  taxableAmount?: number;
   taxRate?: number;
   taxAmount?: number;
+  cgstRate?: number;
+  cgstAmount?: number;
+  sgstRate?: number;
+  sgstAmount?: number;
+  igstRate?: number;
+  igstAmount?: number;
   totalAmount?: number;
+  detailsJson?: string;
+  productDraft?: CreateProductRequest;
 }
 
 export interface CreatePurchaseRequest {
   vendorId: string;
   invoiceNumber: string;
   purchaseDate?: string;
+  ewayBillNumber?: string;
+  transporterName?: string;
+  vehicleNumber?: string;
   paymentDate?: string | null;
   paymentMethod: PurchasePaymentMethod;
   paymentStatus?: PurchasePaymentStatus;
@@ -524,6 +577,9 @@ export interface UpdatePurchaseRequest {
   vendorId: string;
   invoiceNumber: string;
   purchaseDate?: string;
+  ewayBillNumber?: string;
+  transporterName?: string;
+  vehicleNumber?: string;
   paymentDate?: string | null;
   paymentMethod: PurchasePaymentMethod;
   paymentStatus?: PurchasePaymentStatus;

@@ -501,6 +501,14 @@ export async function seedClientCategoryModels(prisma: PrismaClient): Promise<vo
  * Seeds initial baseline daily metal rates for both companies if none exist.
  */
 export async function seedInitialMetalRates(prisma: PrismaClient): Promise<void> {
+  const initKey = 'initial_metal_rates_initialized';
+  const existingInit = await prisma.appMetadata.findUnique({
+    where: { key: initKey },
+  });
+  if (existingInit) {
+    return;
+  }
+
   const companies = await prisma.company.findMany();
   const todayStr = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
 
@@ -533,6 +541,12 @@ export async function seedInitialMetalRates(prisma: PrismaClient): Promise<void>
       });
     }
   }
+
+  await prisma.appMetadata.upsert({
+    where: { key: initKey },
+    create: { key: initKey, value: new Date().toISOString() },
+    update: { value: new Date().toISOString() },
+  });
 }
 
 /**
@@ -540,8 +554,21 @@ export async function seedInitialMetalRates(prisma: PrismaClient): Promise<void>
  * allowing instant end-to-end scanning and unified multi-company billing tests.
  */
 export async function seedSampleProducts(prisma: PrismaClient): Promise<void> {
+  const initKey = 'sample_products_initialized';
+  const existingInit = await prisma.appMetadata.findUnique({
+    where: { key: initKey },
+  });
+  if (existingInit) {
+    return;
+  }
+
   const prodCount = await prisma.product.count();
   if (prodCount > 0) {
+    await prisma.appMetadata.upsert({
+      where: { key: initKey },
+      create: { key: initKey, value: new Date().toISOString() },
+      update: { value: new Date().toISOString() },
+    });
     return;
   }
 
@@ -724,36 +751,57 @@ export async function seedSampleProducts(prisma: PrismaClient): Promise<void> {
  * Idempotently seeds sample vendors for Company A & Company B if table is empty.
  */
 export async function seedSampleVendors(prisma: PrismaClient): Promise<void> {
-  const vendorCount = await prisma.vendor.count();
-  if (vendorCount === 0) {
-    const compA = await prisma.company.findUnique({ where: { code: 'COMPANY_A' } });
-    const compB = await prisma.company.findUnique({ where: { code: 'COMPANY_B' } });
-    if (compA) {
-      await prisma.vendor.create({
-        data: {
-          companyId: compA.id,
-          name: 'Surat Bullion & Gems Traders',
-          phoneNumber: '+91 98251 44520',
-        },
-      });
-      await prisma.vendor.create({
-        data: {
-          companyId: compA.id,
-          name: 'Zaveri Jewellers Wholesale',
-          phoneNumber: '+91 98200 12345',
-        },
-      });
-    }
-    if (compB) {
-      await prisma.vendor.create({
-        data: {
-          companyId: compB.id,
-          name: 'Jaipur Heritage Crafts & Brocade',
-          phoneNumber: '+91 94140 88710',
-        },
-      });
-    }
+  const initKey = 'sample_vendors_initialized';
+  const existingInit = await prisma.appMetadata.findUnique({
+    where: { key: initKey },
+  });
+  if (existingInit) {
+    return;
   }
+
+  const vendorCount = await prisma.vendor.count();
+  if (vendorCount > 0) {
+    await prisma.appMetadata.upsert({
+      where: { key: initKey },
+      create: { key: initKey, value: new Date().toISOString() },
+      update: { value: new Date().toISOString() },
+    });
+    return;
+  }
+
+  const compA = await prisma.company.findUnique({ where: { code: 'COMPANY_A' } });
+  const compB = await prisma.company.findUnique({ where: { code: 'COMPANY_B' } });
+  if (compA) {
+    await prisma.vendor.create({
+      data: {
+        companyId: compA.id,
+        name: 'Surat Bullion & Gems Traders',
+        phoneNumber: '+91 98251 44520',
+      },
+    });
+    await prisma.vendor.create({
+      data: {
+        companyId: compA.id,
+        name: 'Zaveri Jewellers Wholesale',
+        phoneNumber: '+91 98200 12345',
+      },
+    });
+  }
+  if (compB) {
+    await prisma.vendor.create({
+      data: {
+        companyId: compB.id,
+        name: 'Jaipur Heritage Crafts & Brocade',
+        phoneNumber: '+91 94140 88710',
+      },
+    });
+  }
+
+  await prisma.appMetadata.upsert({
+    where: { key: initKey },
+    create: { key: initKey, value: new Date().toISOString() },
+    update: { value: new Date().toISOString() },
+  });
 }
 
 /**

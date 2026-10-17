@@ -3,7 +3,9 @@ import { getPrismaClient } from '../database/prisma';
 import { authService } from './authService';
 import { productService } from './productService';
 import { generateActualPurchasePriceCode } from '../../shared/utils/purchaseCode';
+import { getLocalDateString } from '../../shared/utils/date';
 import type {
+  CreateProductRequest,
   CreatePurchaseItemInput,
   CreatePurchaseRequest,
   ListPurchasesFilter,
@@ -125,6 +127,11 @@ export class PurchaseService {
             id: true,
             name: true,
             phoneNumber: true,
+            address: true,
+            gstNumber: true,
+            bankName: true,
+            accountNumber: true,
+            ifscCode: true,
           },
         },
         items: {
@@ -163,6 +170,11 @@ export class PurchaseService {
             id: true,
             name: true,
             phoneNumber: true,
+            address: true,
+            gstNumber: true,
+            bankName: true,
+            accountNumber: true,
+            ifscCode: true,
           },
         },
         items: {
@@ -231,7 +243,7 @@ export class PurchaseService {
     }
 
     // 4. Validate and resolve all products
-    const productIds = rawItems.map((it) => it.productId);
+    const productIds = rawItems.filter((it) => !it.productDraft && !it.productId.startsWith('draft_')).map((it) => it.productId);
     const existingProducts = await prisma.product.findMany({
       where: {
         id: { in: productIds },
@@ -251,69 +263,141 @@ export class PurchaseService {
     const validatedItems: Array<{
       productId: string;
       productName: string;
+      itemDescription: string | null;
       barcode: string;
       categoryName: string | null;
+      hsnCode: string | null;
       quantityBought: number;
       unitCost: number;
+      discount: number;
+      taxableAmount: number;
       taxRate: number;
       taxAmount: number;
+      cgstRate: number;
+      cgstAmount: number;
+      sgstRate: number;
+      sgstAmount: number;
+      igstRate: number;
+      igstAmount: number;
       totalAmount: number;
       detailsJson: string | null;
+      productDraft?: CreateProductRequest;
     }> = [];
 
     let billSubtotal = 0;
     let billTaxAmount = 0;
 
     for (const item of rawItems) {
-      const prod = productMap.get(item.productId);
-      if (!prod) {
-        throw new Error(`Product with ID "${item.productId}" was not found or does not belong to your company.`);
+      const isDraft = Boolean(item.productDraft || item.productId.startsWith('draft_'));
+      let prodName = item.productName || '';
+      let prodBarcode = item.barcode || '';
+      let prodCategoryName: string | null = item.categoryName || null;
+      let detailsJson: string | null = item.detailsJson || null;
+
+      if (!isDraft) {
+        const prod = productMap.get(item.productId);
+        if (!prod) {
+          throw new Error(`Product with ID "${item.productId}" was not found or does not belong to your company.`);
+        }
+        prodName = prod.name;
+        prodBarcode = prod.barcode;
+        prodCategoryName = prod.category?.name || null;
+
+        const snapshot: Record<string, any> = {
+          name: prod.name,
+          barcode: prod.barcode,
+          category: prod.category?.name,
+        };
+        for (const fv of prod.fieldValues) {
+          if (fv.categoryField?.fieldKey) {
+            snapshot[fv.categoryField.fieldKey] = fv.valueNumber ?? fv.valueText ?? fv.valueBoolean;
+          }
+        }
+        detailsJson = JSON.stringify(snapshot);
+      } else if (item.productDraft) {
+        prodName = item.productDraft.name || item.productName || 'New Product';
+        prodBarcode = item.productDraft.barcode || item.barcode || '';
+        const cat = item.productDraft.categoryId
+          ? await prisma.category.findUnique({ where: { id: item.productDraft.categoryId }, select: { name: true } })
+          : null;
+        if (cat) prodCategoryName = cat.name;
+        detailsJson = JSON.stringify({
+          name: prodName,
+          barcode: prodBarcode,
+          category: prodCategoryName,
+        });
       }
 
       const rawQty = item.quantityBought !== undefined && item.quantityBought !== null ? item.quantityBought : (item as any).quantity;
       const qty = typeof rawQty === 'number' ? rawQty : parseFloat(String(rawQty));
       if (isNaN(qty) || qty <= 0) {
-        throw new Error(`Purchased quantity for "${prod.name}" must be greater than 0.`);
+        throw new Error(`Purchased quantity for "${prodName || 'Item'}" must be greater than 0.`);
       }
 
       const cost = typeof item.unitCost === 'number' ? item.unitCost : parseFloat(String(item.unitCost || 0));
       if (isNaN(cost) || cost < 0) {
-        throw new Error(`Unit cost for "${prod.name}" cannot be negative.`);
+        throw new Error(`Unit cost for "${prodName || 'Item'}" cannot be negative.`);
       }
 
-      const lineSubtotal = Math.round(qty * cost * 100) / 100;
-      const taxRate = typeof item.taxRate === 'number' ? item.taxRate : parseFloat(String(item.taxRate || 0));
-      const lineTax = isNaN(taxRate) || taxRate <= 0
-        ? 0
-        : Math.round(lineSubtotal * (taxRate / 100) * 100) / 100;
-      const lineTotal = Math.round((lineSubtotal + lineTax) * 100) / 100;
+      const rawDiscount = typeof item.discount === 'number' ? item.discount : parseFloat(String(item.discount || 0));
+      const discount = isNaN(rawDiscount) || rawDiscount < 0 ? 0 : Math.round(rawDiscount * 100) / 100;
 
-      // Extract details snapshot
-      const snapshot: Record<string, any> = {
-        name: prod.name,
-        barcode: prod.barcode,
-        category: prod.category?.name,
-      };
-      for (const fv of prod.fieldValues) {
-        if (fv.categoryField?.fieldKey) {
-          snapshot[fv.categoryField.fieldKey] = fv.valueNumber ?? fv.valueText ?? fv.valueBoolean;
-        }
+      const grossSubtotal = Math.round(qty * cost * 100) / 100;
+      const lineTaxable = Math.max(0, Math.round((grossSubtotal - discount) * 100) / 100);
+
+      // Taxes: CGST, SGST, IGST
+      const rawCgstRate = typeof item.cgstRate === 'number' ? item.cgstRate : parseFloat(String(item.cgstRate || 0));
+      const cgstRate = isNaN(rawCgstRate) || rawCgstRate < 0 ? 0 : rawCgstRate;
+
+      const rawSgstRate = typeof item.sgstRate === 'number' ? item.sgstRate : parseFloat(String(item.sgstRate || 0));
+      const sgstRate = isNaN(rawSgstRate) || rawSgstRate < 0 ? 0 : rawSgstRate;
+
+      const rawIgstRate = typeof item.igstRate === 'number' ? item.igstRate : parseFloat(String(item.igstRate || 0));
+      const igstRate = isNaN(rawIgstRate) || rawIgstRate < 0 ? 0 : rawIgstRate;
+
+      const rawTaxRate = typeof item.taxRate === 'number' ? item.taxRate : parseFloat(String(item.taxRate || 0));
+      const fallbackTaxRate = isNaN(rawTaxRate) || rawTaxRate < 0 ? 0 : rawTaxRate;
+
+      const effectiveTaxRate = (cgstRate + sgstRate + igstRate) > 0
+        ? (cgstRate + sgstRate + igstRate)
+        : fallbackTaxRate;
+
+      const cgstAmount = cgstRate > 0 ? Math.round(lineTaxable * (cgstRate / 100) * 100) / 100 : 0;
+      const sgstAmount = sgstRate > 0 ? Math.round(lineTaxable * (sgstRate / 100) * 100) / 100 : 0;
+      const igstAmount = igstRate > 0 ? Math.round(lineTaxable * (igstRate / 100) * 100) / 100 : 0;
+
+      let lineTax = Math.round((cgstAmount + sgstAmount + igstAmount) * 100) / 100;
+      if (lineTax === 0 && effectiveTaxRate > 0) {
+        lineTax = Math.round(lineTaxable * (effectiveTaxRate / 100) * 100) / 100;
       }
+
+      const lineTotal = Math.round((lineTaxable + lineTax) * 100) / 100;
 
       validatedItems.push({
-        productId: prod.id,
-        productName: prod.name,
-        barcode: prod.barcode,
-        categoryName: prod.category?.name || null,
+        productId: item.productId,
+        productName: prodName,
+        itemDescription: item.itemDescription?.trim() || null,
+        barcode: prodBarcode,
+        categoryName: prodCategoryName,
+        hsnCode: item.hsnCode?.trim() || null,
         quantityBought: qty,
         unitCost: Math.round(cost * 100) / 100,
-        taxRate: isNaN(taxRate) ? 0 : taxRate,
+        discount,
+        taxableAmount: lineTaxable,
+        taxRate: effectiveTaxRate,
         taxAmount: lineTax,
+        cgstRate,
+        cgstAmount,
+        sgstRate,
+        sgstAmount,
+        igstRate,
+        igstAmount,
         totalAmount: lineTotal,
-        detailsJson: JSON.stringify(snapshot),
+        detailsJson,
+        productDraft: item.productDraft,
       });
 
-      billSubtotal += lineSubtotal;
+      billSubtotal += lineTaxable;
       billTaxAmount += lineTax;
     }
 
@@ -322,7 +406,7 @@ export class PurchaseService {
     const billGrandTotal = Math.round((billSubtotal + billTaxAmount) * 100) / 100;
 
     // 5. Payment details calculation
-    const purchaseDate = input.purchaseDate?.trim() || new Date().toISOString().split('T')[0];
+    const purchaseDate = input.purchaseDate?.trim() || getLocalDateString();
     const rawMethod = input.paymentMethod || 'CASH';
     const paymentMethod: PurchasePaymentMethod =
       rawMethod === 'ONLINE' || rawMethod === 'UPI' || rawMethod === 'BANK_TRANSFER' || rawMethod === 'CARD'
@@ -387,6 +471,9 @@ export class PurchaseService {
           vendorId: vendor.id,
           invoiceNumber,
           purchaseDate,
+          ewayBillNumber: input.ewayBillNumber?.trim() || null,
+          transporterName: input.transporterName?.trim() || null,
+          vehicleNumber: input.vehicleNumber?.trim() || null,
           subtotal: billSubtotal,
           taxAmount: billTaxAmount,
           totalAmount: billGrandTotal,
@@ -401,75 +488,109 @@ export class PurchaseService {
 
       // Insert all purchase items
       for (const item of validatedItems) {
+        let finalProductId = item.productId;
+
+        // If product was drafted in purchase entry (not yet in DB), create it now atomically
+        if (item.productDraft) {
+          const createdProduct = await productService.createProductWithTx(
+            tx,
+            companyId,
+            {
+              ...item.productDraft,
+              stockQuantity: item.quantityBought,
+              vendorId: vendor.id,
+              purchaseDate,
+            },
+            item.quantityBought
+          );
+          finalProductId = createdProduct.id;
+        }
+
         await tx.purchaseItem.create({
           data: {
             purchaseId: purchase.id,
-            productId: item.productId,
+            productId: finalProductId,
             productName: item.productName,
+            itemDescription: item.itemDescription,
             barcode: item.barcode,
             categoryName: item.categoryName,
+            hsnCode: item.hsnCode,
             quantityBought: item.quantityBought,
             unitCost: item.unitCost,
+            discount: item.discount,
+            taxableAmount: item.taxableAmount,
             taxRate: item.taxRate,
             taxAmount: item.taxAmount,
+            cgstRate: item.cgstRate,
+            cgstAmount: item.cgstAmount,
+            sgstRate: item.sgstRate,
+            sgstAmount: item.sgstAmount,
+            igstRate: item.igstRate,
+            igstAmount: item.igstAmount,
             totalAmount: item.totalAmount,
             detailsJson: item.detailsJson,
           },
         });
 
-        // Reconcile stock: if newly created product, set stock; if existing, increment stock
-        const previousPurchaseCount = await tx.purchaseItem.count({
-          where: { productId: item.productId },
-        });
+        // Reconcile stock for existing products: if existing product with previous purchases, increment stock
+        if (!item.productDraft) {
+          const previousPurchaseCount = await tx.purchaseItem.count({
+            where: {
+              productId: finalProductId,
+              purchaseId: { not: purchase.id },
+            },
+          });
 
-        if (previousPurchaseCount > 0) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stockQuantity: {
-                increment: item.quantityBought,
+          if (previousPurchaseCount > 0) {
+            await tx.product.update({
+              where: { id: finalProductId },
+              data: {
+                stockQuantity: {
+                  increment: item.quantityBought,
+                },
+                vendorId: vendor.id,
+                purchaseDate,
               },
-              vendorId: vendor.id,
-              purchaseDate,
-            },
-          });
-        } else {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stockQuantity: item.quantityBought,
-              vendorId: vendor.id,
-              purchaseDate,
-            },
-          });
+            });
+          } else {
+            await tx.product.update({
+              where: { id: finalProductId },
+              data: {
+                stockQuantity: item.quantityBought,
+                vendorId: vendor.id,
+                purchaseDate,
+              },
+            });
+          }
         }
 
         // Synchronize latest purchase pricing into productFieldValue so Products & Barcodes reflects it
         if (item.unitCost > 0) {
           const prod = productMap.get(item.productId);
-          if (prod) {
-            const pricingFields = await productService.ensurePurchaseCategoryFields(tx, prod.categoryId);
+          const catId = prod?.categoryId || item.productDraft?.categoryId;
+          if (catId) {
+            const pricingFields = await productService.ensurePurchaseCategoryFields(tx, catId);
             const existingAddFv = await tx.productFieldValue.findUnique({
               where: {
                 productId_categoryFieldId: {
-                  productId: prod.id,
+                  productId: finalProductId,
                   categoryFieldId: pricingFields.additionalChargesField.id,
                 },
               },
             });
-            const addPercent = existingAddFv?.valueNumber ?? 0;
+            const addPercent = existingAddFv?.valueNumber ?? (item.productDraft?.additionalChargesPercentage ?? 0);
             const actualPrice = Math.round((item.unitCost + (item.unitCost * addPercent / 100)) * 100) / 100;
             const actualCode = generateActualPurchasePriceCode(actualPrice);
 
             await tx.productFieldValue.upsert({
               where: {
                 productId_categoryFieldId: {
-                  productId: prod.id,
+                  productId: finalProductId,
                   categoryFieldId: pricingFields.purchasePriceField.id,
                 },
               },
               create: {
-                productId: prod.id,
+                productId: finalProductId,
                 categoryFieldId: pricingFields.purchasePriceField.id,
                 valueNumber: item.unitCost,
               },
@@ -481,12 +602,12 @@ export class PurchaseService {
             await tx.productFieldValue.upsert({
               where: {
                 productId_categoryFieldId: {
-                  productId: prod.id,
+                  productId: finalProductId,
                   categoryFieldId: pricingFields.actualPurchasePriceField.id,
                 },
               },
               create: {
-                productId: prod.id,
+                productId: finalProductId,
                 categoryFieldId: pricingFields.actualPurchasePriceField.id,
                 valueNumber: actualPrice,
               },
@@ -498,12 +619,12 @@ export class PurchaseService {
             await tx.productFieldValue.upsert({
               where: {
                 productId_categoryFieldId: {
-                  productId: prod.id,
+                  productId: finalProductId,
                   categoryFieldId: pricingFields.actualPurchasePriceCodeField.id,
                 },
               },
               create: {
-                productId: prod.id,
+                productId: finalProductId,
                 categoryFieldId: pricingFields.actualPurchasePriceCodeField.id,
                 valueText: actualCode,
               },
@@ -592,7 +713,9 @@ export class PurchaseService {
     }
 
     // 4. Validate and resolve all products
-    const productIds = rawItems.map((it) => it.productId);
+    const productIds = rawItems
+      .filter((it) => !it.productDraft && !it.productId.startsWith('draft_'))
+      .map((it) => it.productId);
     const existingProducts = await prisma.product.findMany({
       where: {
         id: { in: productIds },
@@ -612,69 +735,142 @@ export class PurchaseService {
     const validatedItems: Array<{
       productId: string;
       productName: string;
+      itemDescription: string | null;
       barcode: string;
       categoryName: string | null;
+      hsnCode: string | null;
       quantityBought: number;
       unitCost: number;
+      discount: number;
+      taxableAmount: number;
       taxRate: number;
       taxAmount: number;
+      cgstRate: number;
+      cgstAmount: number;
+      sgstRate: number;
+      sgstAmount: number;
+      igstRate: number;
+      igstAmount: number;
       totalAmount: number;
       detailsJson: string | null;
+      productDraft?: CreateProductRequest;
     }> = [];
 
     let billSubtotal = 0;
     let billTaxAmount = 0;
 
     for (const item of rawItems) {
-      const prod = productMap.get(item.productId);
-      if (!prod) {
-        throw new Error(`Product with ID "${item.productId}" was not found or does not belong to your company.`);
+      const isDraft = Boolean(item.productDraft || item.productId.startsWith('draft_'));
+      let prodName = item.productName || '';
+      let prodBarcode = item.barcode || '';
+      let prodCategoryName: string | null = item.categoryName || null;
+      let detailsJson: string | null = item.detailsJson || null;
+
+      if (!isDraft) {
+        const prod = productMap.get(item.productId);
+        if (!prod) {
+          throw new Error(`Product with ID "${item.productId}" was not found or does not belong to your company.`);
+        }
+        prodName = prod.name;
+        prodBarcode = prod.barcode;
+        prodCategoryName = prod.category?.name || null;
+
+        // Extract details snapshot
+        const snapshot: Record<string, any> = {
+          name: prod.name,
+          barcode: prod.barcode,
+          category: prod.category?.name,
+        };
+        for (const fv of prod.fieldValues) {
+          if (fv.categoryField?.fieldKey) {
+            snapshot[fv.categoryField.fieldKey] = fv.valueNumber ?? fv.valueText ?? fv.valueBoolean;
+          }
+        }
+        detailsJson = JSON.stringify(snapshot);
+      } else if (item.productDraft) {
+        prodName = item.productDraft.name || item.productName || 'New Product';
+        prodBarcode = item.productDraft.barcode || item.barcode || '';
+        const cat = item.productDraft.categoryId
+          ? await prisma.category.findUnique({ where: { id: item.productDraft.categoryId }, select: { name: true } })
+          : null;
+        if (cat) prodCategoryName = cat.name;
+        detailsJson = JSON.stringify({
+          name: prodName,
+          barcode: prodBarcode,
+          category: prodCategoryName,
+        });
       }
 
       const rawQty = item.quantityBought !== undefined && item.quantityBought !== null ? item.quantityBought : (item as any).quantity;
       const qty = typeof rawQty === 'number' ? rawQty : parseFloat(String(rawQty));
       if (isNaN(qty) || qty <= 0) {
-        throw new Error(`Purchased quantity for "${prod.name}" must be greater than 0.`);
+        throw new Error(`Purchased quantity for "${prodName || 'Item'}" must be greater than 0.`);
       }
 
       const cost = typeof item.unitCost === 'number' ? item.unitCost : parseFloat(String(item.unitCost || 0));
       if (isNaN(cost) || cost < 0) {
-        throw new Error(`Unit cost for "${prod.name}" cannot be negative.`);
+        throw new Error(`Unit cost for "${prodName || 'Item'}" cannot be negative.`);
       }
 
-      const lineSubtotal = Math.round(qty * cost * 100) / 100;
-      const taxRate = typeof item.taxRate === 'number' ? item.taxRate : parseFloat(String(item.taxRate || 0));
-      const lineTax = isNaN(taxRate) || taxRate <= 0
-        ? 0
-        : Math.round(lineSubtotal * (taxRate / 100) * 100) / 100;
-      const lineTotal = Math.round((lineSubtotal + lineTax) * 100) / 100;
+      const rawDiscount = typeof item.discount === 'number' ? item.discount : parseFloat(String(item.discount || 0));
+      const discount = isNaN(rawDiscount) || rawDiscount < 0 ? 0 : Math.round(rawDiscount * 100) / 100;
 
-      // Extract details snapshot
-      const snapshot: Record<string, any> = {
-        name: prod.name,
-        barcode: prod.barcode,
-        category: prod.category?.name,
-      };
-      for (const fv of prod.fieldValues) {
-        if (fv.categoryField?.fieldKey) {
-          snapshot[fv.categoryField.fieldKey] = fv.valueNumber ?? fv.valueText ?? fv.valueBoolean;
-        }
+      const grossSubtotal = Math.round(qty * cost * 100) / 100;
+      const lineTaxable = Math.max(0, Math.round((grossSubtotal - discount) * 100) / 100);
+
+      // Taxes: CGST, SGST, IGST
+      const rawCgstRate = typeof item.cgstRate === 'number' ? item.cgstRate : parseFloat(String(item.cgstRate || 0));
+      const cgstRate = isNaN(rawCgstRate) || rawCgstRate < 0 ? 0 : rawCgstRate;
+
+      const rawSgstRate = typeof item.sgstRate === 'number' ? item.sgstRate : parseFloat(String(item.sgstRate || 0));
+      const sgstRate = isNaN(rawSgstRate) || rawSgstRate < 0 ? 0 : rawSgstRate;
+
+      const rawIgstRate = typeof item.igstRate === 'number' ? item.igstRate : parseFloat(String(item.igstRate || 0));
+      const igstRate = isNaN(rawIgstRate) || rawIgstRate < 0 ? 0 : rawIgstRate;
+
+      const rawTaxRate = typeof item.taxRate === 'number' ? item.taxRate : parseFloat(String(item.taxRate || 0));
+      const fallbackTaxRate = isNaN(rawTaxRate) || rawTaxRate < 0 ? 0 : rawTaxRate;
+
+      const effectiveTaxRate = (cgstRate + sgstRate + igstRate) > 0
+        ? (cgstRate + sgstRate + igstRate)
+        : fallbackTaxRate;
+
+      const cgstAmount = cgstRate > 0 ? Math.round(lineTaxable * (cgstRate / 100) * 100) / 100 : 0;
+      const sgstAmount = sgstRate > 0 ? Math.round(lineTaxable * (sgstRate / 100) * 100) / 100 : 0;
+      const igstAmount = igstRate > 0 ? Math.round(lineTaxable * (igstRate / 100) * 100) / 100 : 0;
+
+      let lineTax = Math.round((cgstAmount + sgstAmount + igstAmount) * 100) / 100;
+      if (lineTax === 0 && effectiveTaxRate > 0) {
+        lineTax = Math.round(lineTaxable * (effectiveTaxRate / 100) * 100) / 100;
       }
+
+      const lineTotal = Math.round((lineTaxable + lineTax) * 100) / 100;
 
       validatedItems.push({
-        productId: prod.id,
-        productName: prod.name,
-        barcode: prod.barcode,
-        categoryName: prod.category?.name || null,
+        productId: item.productId,
+        productName: prodName,
+        itemDescription: item.itemDescription?.trim() || null,
+        barcode: prodBarcode,
+        categoryName: prodCategoryName,
+        hsnCode: item.hsnCode?.trim() || null,
         quantityBought: qty,
         unitCost: Math.round(cost * 100) / 100,
-        taxRate: isNaN(taxRate) ? 0 : taxRate,
+        discount,
+        taxableAmount: lineTaxable,
+        taxRate: effectiveTaxRate,
         taxAmount: lineTax,
+        cgstRate,
+        cgstAmount,
+        sgstRate,
+        sgstAmount,
+        igstRate,
+        igstAmount,
         totalAmount: lineTotal,
-        detailsJson: JSON.stringify(snapshot),
+        detailsJson,
+        productDraft: item.productDraft,
       });
 
-      billSubtotal += lineSubtotal;
+      billSubtotal += lineTaxable;
       billTaxAmount += lineTax;
     }
 
@@ -683,7 +879,7 @@ export class PurchaseService {
     const billGrandTotal = Math.round((billSubtotal + billTaxAmount) * 100) / 100;
 
     // 5. Payment details calculation
-    const purchaseDate = input.purchaseDate?.trim() || existing.purchaseDate || new Date().toISOString().split('T')[0];
+    const purchaseDate = input.purchaseDate?.trim() || existing.purchaseDate || getLocalDateString();
     const rawMethod = input.paymentMethod || (existing.paymentMethod as PurchasePaymentMethod) || 'CASH';
     const paymentMethod: PurchasePaymentMethod =
       rawMethod === 'ONLINE' || rawMethod === 'UPI' || rawMethod === 'BANK_TRANSFER' || rawMethod === 'CARD'
@@ -745,42 +941,73 @@ export class PurchaseService {
 
       // Insert new items and apply new inventory increments
       for (const item of validatedItems) {
+        let finalProductId = item.productId;
+
+        // If product was drafted in purchase entry (not yet in DB), create it now atomically
+        if (item.productDraft) {
+          const createdProduct = await productService.createProductWithTx(
+            tx,
+            companyId,
+            {
+              ...item.productDraft,
+              stockQuantity: item.quantityBought,
+              vendorId: vendor.id,
+              purchaseDate,
+            },
+            item.quantityBought
+          );
+          finalProductId = createdProduct.id;
+        }
+
         await tx.purchaseItem.create({
           data: {
             purchaseId: existing.id,
-            productId: item.productId,
+            productId: finalProductId,
             productName: item.productName,
+            itemDescription: item.itemDescription,
             barcode: item.barcode,
             categoryName: item.categoryName,
+            hsnCode: item.hsnCode,
             quantityBought: item.quantityBought,
             unitCost: item.unitCost,
+            discount: item.discount,
+            taxableAmount: item.taxableAmount,
             taxRate: item.taxRate,
             taxAmount: item.taxAmount,
+            cgstRate: item.cgstRate,
+            cgstAmount: item.cgstAmount,
+            sgstRate: item.sgstRate,
+            sgstAmount: item.sgstAmount,
+            igstRate: item.igstRate,
+            igstAmount: item.igstAmount,
             totalAmount: item.totalAmount,
             detailsJson: item.detailsJson,
           },
         });
 
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stockQuantity: {
-              increment: item.quantityBought,
+        if (!item.productDraft) {
+          await tx.product.update({
+            where: { id: finalProductId },
+            data: {
+              stockQuantity: {
+                increment: item.quantityBought,
+              },
+              vendorId: vendor.id,
+              purchaseDate,
             },
-            vendorId: vendor.id,
-            purchaseDate,
-          },
-        });
+          });
+        }
 
         // Synchronize latest purchase pricing into productFieldValue so Products & Barcodes reflects it
         if (item.unitCost > 0) {
           const prod = productMap.get(item.productId);
-          if (prod) {
-            const pricingFields = await productService.ensurePurchaseCategoryFields(tx, prod.categoryId);
+          const catId = prod?.categoryId || item.productDraft?.categoryId;
+          if (catId) {
+            const pricingFields = await productService.ensurePurchaseCategoryFields(tx, catId);
             const existingAddFv = await tx.productFieldValue.findUnique({
               where: {
                 productId_categoryFieldId: {
-                  productId: prod.id,
+                  productId: finalProductId,
                   categoryFieldId: pricingFields.additionalChargesField.id,
                 },
               },
@@ -792,12 +1019,12 @@ export class PurchaseService {
             await tx.productFieldValue.upsert({
               where: {
                 productId_categoryFieldId: {
-                  productId: prod.id,
+                  productId: finalProductId,
                   categoryFieldId: pricingFields.purchasePriceField.id,
                 },
               },
               create: {
-                productId: prod.id,
+                productId: finalProductId,
                 categoryFieldId: pricingFields.purchasePriceField.id,
                 valueNumber: item.unitCost,
               },
@@ -809,12 +1036,12 @@ export class PurchaseService {
             await tx.productFieldValue.upsert({
               where: {
                 productId_categoryFieldId: {
-                  productId: prod.id,
+                  productId: finalProductId,
                   categoryFieldId: pricingFields.actualPurchasePriceField.id,
                 },
               },
               create: {
-                productId: prod.id,
+                productId: finalProductId,
                 categoryFieldId: pricingFields.actualPurchasePriceField.id,
                 valueNumber: actualPrice,
               },
@@ -826,12 +1053,12 @@ export class PurchaseService {
             await tx.productFieldValue.upsert({
               where: {
                 productId_categoryFieldId: {
-                  productId: prod.id,
+                  productId: finalProductId,
                   categoryFieldId: pricingFields.actualPurchasePriceCodeField.id,
                 },
               },
               create: {
-                productId: prod.id,
+                productId: finalProductId,
                 categoryFieldId: pricingFields.actualPurchasePriceCodeField.id,
                 valueText: actualCode,
               },
@@ -850,6 +1077,9 @@ export class PurchaseService {
           vendorId: vendor.id,
           invoiceNumber,
           purchaseDate,
+          ewayBillNumber: input.ewayBillNumber !== undefined ? (input.ewayBillNumber?.trim() || null) : (existing as any).ewayBillNumber,
+          transporterName: input.transporterName !== undefined ? (input.transporterName?.trim() || null) : (existing as any).transporterName,
+          vehicleNumber: input.vehicleNumber !== undefined ? (input.vehicleNumber?.trim() || null) : (existing as any).vehicleNumber,
           subtotal: billSubtotal,
           taxAmount: billTaxAmount,
           totalAmount: billGrandTotal,
@@ -920,7 +1150,7 @@ export class PurchaseService {
     } else if (input.paymentDate !== undefined) {
       paymentDate = input.paymentDate ? input.paymentDate.trim() : null;
     } else if (!paymentDate && (paymentMethod === 'CASH' || paymentMethod === 'ONLINE')) {
-      paymentDate = new Date().toISOString().split('T')[0];
+      paymentDate = getLocalDateString();
     }
 
     const finalNote = input.notes !== undefined ? input.notes.trim() || null : existing.notes;
@@ -975,13 +1205,23 @@ export class PurchaseService {
       purchaseId: item.purchaseId,
       productId: item.productId,
       productName: item.productName,
+      itemDescription: item.itemDescription || null,
       barcode: item.barcode,
       categoryName: item.categoryName,
+      hsnCode: item.hsnCode || null,
       quantityBought: item.quantityBought,
       currentStock: item.product ? item.product.stockQuantity : 0,
       unitCost: item.unitCost,
+      discount: item.discount || 0,
+      taxableAmount: item.taxableAmount !== undefined && item.taxableAmount !== null ? item.taxableAmount : (item.quantityBought * item.unitCost),
       taxRate: item.taxRate || 0,
       taxAmount: item.taxAmount || 0,
+      cgstRate: item.cgstRate || 0,
+      cgstAmount: item.cgstAmount || 0,
+      sgstRate: item.sgstRate || 0,
+      sgstAmount: item.sgstAmount || 0,
+      igstRate: item.igstRate || 0,
+      igstAmount: item.igstAmount || 0,
       totalAmount: item.totalAmount,
       detailsJson: item.detailsJson || null,
       createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : String(item.createdAt),
@@ -1036,8 +1276,16 @@ export class PurchaseService {
       vendorId: p.vendorId,
       vendorName: p.vendor?.name || 'Unknown Vendor',
       vendorPhone: p.vendor?.phoneNumber || null,
+      vendorAddress: p.vendor?.address || null,
+      vendorGstNumber: p.vendor?.gstNumber || null,
+      vendorBankName: p.vendor?.bankName || null,
+      vendorAccountNumber: p.vendor?.accountNumber || null,
+      vendorIfscCode: p.vendor?.ifscCode || null,
       invoiceNumber,
       purchaseDate: p.purchaseDate,
+      ewayBillNumber: p.ewayBillNumber || null,
+      transporterName: p.transporterName || null,
+      vehicleNumber: p.vehicleNumber || null,
       paymentDate,
       subtotal,
       taxAmount,

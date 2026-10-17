@@ -47,7 +47,7 @@ export class ProductService {
    * - Followed by a 6-digit padded sequential number (e.g. "AGJ000001", "BSS000001").
    * Guaranteed to be unique across the database.
    */
-  private async generatePermanentBarcode(
+  public async generatePermanentBarcode(
     productName: string,
     categoryName: string,
     companyIdentifier?: string
@@ -644,16 +644,23 @@ export class ProductService {
   }
 
   /**
-   * Creates a new Product with permanent barcode and dynamic field values inside a database transaction.
+   * Internal helper to validate and create product + field values inside an existing Prisma transaction client.
+   * Usable both by createProduct and purchaseService.createPurchase/updatePurchase.
    */
-  public async createProduct(input: CreateProductRequest): Promise<ProductDto> {
-    const companyId = authService.getAuthenticatedCompanyId();
-    const prisma = getPrismaClient();
+  public async createProductWithTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    input: CreateProductRequest,
+    stockQuantityOverride?: number
+  ): Promise<any> {
+    const category = await tx.category.findUnique({
+      where: { id: input.categoryId },
+      select: { id: true, companyId: true, name: true },
+    });
+    if (!category || category.companyId !== companyId) {
+      throw new Error('Forbidden: Category not found or does not belong to your company.');
+    }
 
-    // 1. Verify category belongs to authenticated company
-    const category = await this.verifyCategoryOwnership(input.categoryId, companyId);
-
-    // 2. Validate product name
     const name = input.name?.trim();
     if (!name) {
       throw new Error('Product name is required.');
@@ -662,13 +669,11 @@ export class ProductService {
       throw new Error('Product name cannot exceed 200 characters.');
     }
 
-    // 3. Load dynamic CategoryFields for this category
-    const categoryFields = await prisma.categoryField.findMany({
+    const categoryFields = await tx.categoryField.findMany({
       where: { categoryId: input.categoryId },
       orderBy: { displayOrder: 'asc' },
     });
 
-    // Extract purchase & selling pricing from direct fields or fieldValues
     let rawPurchasePrice: unknown = input.purchasePrice;
     let rawPurchaseRate: unknown = input.purchaseRatePerGram;
     let rawPurchaseMaking: unknown = input.purchaseMakingChargesPerGram;
@@ -727,7 +732,6 @@ export class ProductService {
       purchaseMakingChargesPerGramVal = mpNum;
     }
 
-    // Weight extraction
     let weightVal: number | null = null;
     const weightField = categoryFields.find(
       (f) => f.fieldKey === 'weight' || f.name.toLowerCase().includes('weight')
@@ -748,36 +752,35 @@ export class ProductService {
     if (hasPurityField && purchaseRatePerGramVal !== null && weightVal !== null && weightVal > 0) {
       const baseCost = weightVal * purchaseRatePerGramVal;
       const makingCost = weightVal * (purchaseMakingChargesPerGramVal ?? 0);
+      const baseTotal = baseCost + makingCost;
       const addPercent = additionalChargesVal ?? 0;
       const addCostAmt = baseCost * (addPercent / 100);
 
-      purchasePriceVal = Math.round((baseCost + makingCost) * 100) / 100;
-      actualPurchasePriceVal = Math.round((baseCost + makingCost + addCostAmt) * 100) / 100;
-      if (additionalChargesVal === null) {
-        additionalChargesVal = 0;
+      purchasePriceVal = Math.round(baseTotal * 100) / 100;
+      actualPurchasePriceVal = Math.round((baseTotal + addCostAmt) * 100) / 100;
+    } else {
+      if (rawPurchasePrice !== undefined && rawPurchasePrice !== null && String(rawPurchasePrice).trim() !== '') {
+        const pNum = typeof rawPurchasePrice === 'number' ? rawPurchasePrice : parseFloat(String(rawPurchasePrice));
+        if (isNaN(pNum) || pNum <= 0) {
+          throw new Error('Purchase Price (₹) must be a valid number greater than 0.');
+        }
+        purchasePriceVal = pNum;
+        const addPercent = additionalChargesVal ?? 0;
+        actualPurchasePriceVal = Math.round((pNum + (pNum * addPercent / 100)) * 100) / 100;
+      } else {
+        throw new Error('Purchase Price (₹) is required.');
       }
-    } else if (rawPurchasePrice !== undefined && rawPurchasePrice !== null && String(rawPurchasePrice).trim() !== '') {
-      const num = typeof rawPurchasePrice === 'number' ? rawPurchasePrice : parseFloat(String(rawPurchasePrice));
-      if (isNaN(num) || num < 0) {
-        throw new Error('Purchase Price must be a valid non-negative number.');
-      }
-      purchasePriceVal = num;
-      if (additionalChargesVal === null) {
-        additionalChargesVal = 0;
-      }
-      actualPurchasePriceVal = Math.round((purchasePriceVal + (purchasePriceVal * additionalChargesVal / 100)) * 100) / 100;
     }
 
-    // Selling price and margin parsing & auto calculation
     let sellingPriceVal: number | null = null;
     let marginVal: number | null = null;
 
     if (rawSellingPrice !== undefined && rawSellingPrice !== null && String(rawSellingPrice).trim() !== '') {
-      const spNum = typeof rawSellingPrice === 'number' ? rawSellingPrice : parseFloat(String(rawSellingPrice));
-      if (isNaN(spNum) || spNum < 0) {
-        throw new Error('Selling Price must be a valid non-negative number.');
+      const sNum = typeof rawSellingPrice === 'number' ? rawSellingPrice : parseFloat(String(rawSellingPrice));
+      if (isNaN(sNum) || sNum <= 0) {
+        throw new Error('Selling Price (₹) must be a valid number greater than 0.');
       }
-      sellingPriceVal = Math.round(spNum * 100) / 100;
+      sellingPriceVal = sNum;
     }
 
     if (rawMargin !== undefined && rawMargin !== null && String(rawMargin).trim() !== '') {
@@ -785,18 +788,17 @@ export class ProductService {
       if (isNaN(mNum)) {
         throw new Error('Margin must be a valid number.');
       }
-      marginVal = Math.round(mNum * 100) / 100;
+      marginVal = mNum;
+      if (sellingPriceVal === null && actualPurchasePriceVal !== null && actualPurchasePriceVal > 0) {
+        sellingPriceVal = Math.round((actualPurchasePriceVal + (actualPurchasePriceVal * mNum / 100)) * 100) / 100;
+      }
     }
 
-    // Two-way calculation if cost is available
-    if (sellingPriceVal !== null && marginVal === null && actualPurchasePriceVal !== null && actualPurchasePriceVal > 0) {
-      marginVal = Math.round(((sellingPriceVal - actualPurchasePriceVal) / actualPurchasePriceVal) * 100 * 100) / 100;
-    } else if (marginVal !== null && sellingPriceVal === null && actualPurchasePriceVal !== null && actualPurchasePriceVal > 0) {
-      sellingPriceVal = Math.round((actualPurchasePriceVal + (actualPurchasePriceVal * marginVal / 100)) * 100) / 100;
+    if (!hasPurityField && (sellingPriceVal === null || sellingPriceVal <= 0)) {
+      throw new Error('Selling Price (₹) is required.');
     }
 
-    // 4. Validate and build sanitized field value records
-    const inputMap = new Map<string, { valueText?: string | null; valueNumber?: number | null; valueBoolean?: boolean | null }>();
+    const inputMap = new Map<string, typeof input.fieldValues[0]>();
     if (Array.isArray(input.fieldValues)) {
       for (const fv of input.fieldValues) {
         if (fv && fv.categoryFieldId) {
@@ -825,7 +827,6 @@ export class ProductService {
     }> = [];
 
     for (const field of categoryFields) {
-      // Internal pricing fields are managed dedicatedly below
       if (INTERNAL_SYSTEM_KEYS.includes(field.fieldKey)) {
         continue;
       }
@@ -891,7 +892,6 @@ export class ProductService {
         }
       }
 
-      // Record field value even if empty/null so record exists for the product
       fieldValuesToCreate.push({
         categoryFieldId: field.id,
         valueText,
@@ -900,169 +900,114 @@ export class ProductService {
       });
     }
 
-    // 5. Extract stockQuantity (supports decimals e.g. 50.5m or integers e.g. 10 pcs)
-    const stockQuantity =
-      typeof input.stockQuantity === 'number' && !isNaN(input.stockQuantity)
-        ? Math.max(0, input.stockQuantity)
-        : 0;
+    const stockQuantity = stockQuantityOverride !== undefined
+      ? Math.max(0, stockQuantityOverride)
+      : (typeof input.stockQuantity === 'number' && !isNaN(input.stockQuantity) ? Math.max(0, input.stockQuantity) : 0);
 
-    // 6. Generate permanent barcode
-    const barcode = await this.generatePermanentBarcode(name, category.name);
+    const barcode = input.barcode?.trim() || (await this.generatePermanentBarcode(name, category.name));
 
-    // 7. Execute atomic database transaction
-    const createdProduct = await prisma.$transaction(async (tx) => {
-      // Ensure pricing CategoryFields exist and populate them
-      if (
-        purchasePriceVal !== null ||
-        actualPurchasePriceVal !== null ||
-        purchaseRatePerGramVal !== null ||
-        additionalChargesVal !== null ||
-        sellingPriceVal !== null ||
-        marginVal !== null
-      ) {
-        const pricingFields = await this.ensurePurchaseCategoryFields(tx, input.categoryId);
-        const actualPurchasePriceCodeVal = generateActualPurchasePriceCode(actualPurchasePriceVal);
+    if (
+      purchasePriceVal !== null ||
+      actualPurchasePriceVal !== null ||
+      purchaseRatePerGramVal !== null ||
+      additionalChargesVal !== null ||
+      sellingPriceVal !== null ||
+      marginVal !== null
+    ) {
+      const pricingFields = await this.ensurePurchaseCategoryFields(tx, input.categoryId);
+      const actualPurchasePriceCodeVal = generateActualPurchasePriceCode(actualPurchasePriceVal);
 
-        // Append or update purchaseRatePerGram
+      if (purchaseRatePerGramVal !== null) {
         const rpIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.purchaseRatePerGramField.id);
-        if (rpIdx >= 0) {
-          fieldValuesToCreate[rpIdx].valueNumber = purchaseRatePerGramVal;
-        } else if (purchaseRatePerGramVal !== null) {
-          fieldValuesToCreate.push({
-            categoryFieldId: pricingFields.purchaseRatePerGramField.id,
-            valueText: null,
-            valueNumber: purchaseRatePerGramVal,
-            valueBoolean: null,
-          });
-        }
+        if (rpIdx >= 0) fieldValuesToCreate[rpIdx].valueNumber = purchaseRatePerGramVal;
+        else fieldValuesToCreate.push({ categoryFieldId: pricingFields.purchaseRatePerGramField.id, valueText: null, valueNumber: purchaseRatePerGramVal, valueBoolean: null });
+      }
 
-        // Append or update purchaseMakingChargesPerGram
+      if (purchaseMakingChargesPerGramVal !== null) {
         const mpIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.purchaseMakingChargesPerGramField.id);
-        if (mpIdx >= 0) {
-          fieldValuesToCreate[mpIdx].valueNumber = purchaseMakingChargesPerGramVal;
-        } else if (purchaseMakingChargesPerGramVal !== null) {
-          fieldValuesToCreate.push({
-            categoryFieldId: pricingFields.purchaseMakingChargesPerGramField.id,
-            valueText: null,
-            valueNumber: purchaseMakingChargesPerGramVal,
-            valueBoolean: null,
-          });
-        }
+        if (mpIdx >= 0) fieldValuesToCreate[mpIdx].valueNumber = purchaseMakingChargesPerGramVal;
+        else fieldValuesToCreate.push({ categoryFieldId: pricingFields.purchaseMakingChargesPerGramField.id, valueText: null, valueNumber: purchaseMakingChargesPerGramVal, valueBoolean: null });
+      }
 
-        // Append or update purchasePrice
+      if (purchasePriceVal !== null) {
         const pIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.purchasePriceField.id);
-        if (pIdx >= 0) {
-          fieldValuesToCreate[pIdx].valueNumber = purchasePriceVal;
-        } else if (purchasePriceVal !== null) {
-          fieldValuesToCreate.push({
-            categoryFieldId: pricingFields.purchasePriceField.id,
-            valueText: null,
-            valueNumber: purchasePriceVal,
-            valueBoolean: null,
-          });
-        }
+        if (pIdx >= 0) fieldValuesToCreate[pIdx].valueNumber = purchasePriceVal;
+        else fieldValuesToCreate.push({ categoryFieldId: pricingFields.purchasePriceField.id, valueText: null, valueNumber: purchasePriceVal, valueBoolean: null });
+      }
 
-        // Append or update additionalChargesPercentage
+      if (additionalChargesVal !== null) {
         const cIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.additionalChargesField.id);
-        if (cIdx >= 0) {
-          fieldValuesToCreate[cIdx].valueNumber = additionalChargesVal;
-        } else if (additionalChargesVal !== null) {
-          fieldValuesToCreate.push({
-            categoryFieldId: pricingFields.additionalChargesField.id,
-            valueText: null,
-            valueNumber: additionalChargesVal,
-            valueBoolean: null,
-          });
-        }
+        if (cIdx >= 0) fieldValuesToCreate[cIdx].valueNumber = additionalChargesVal;
+        else fieldValuesToCreate.push({ categoryFieldId: pricingFields.additionalChargesField.id, valueText: null, valueNumber: additionalChargesVal, valueBoolean: null });
+      }
 
-        // Append or update actualPurchasePrice
+      if (actualPurchasePriceVal !== null) {
         const aIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.actualPurchasePriceField.id);
-        if (aIdx >= 0) {
-          fieldValuesToCreate[aIdx].valueNumber = actualPurchasePriceVal;
-        } else if (actualPurchasePriceVal !== null) {
-          fieldValuesToCreate.push({
-            categoryFieldId: pricingFields.actualPurchasePriceField.id,
-            valueText: null,
-            valueNumber: actualPurchasePriceVal,
-            valueBoolean: null,
-          });
-        }
+        if (aIdx >= 0) fieldValuesToCreate[aIdx].valueNumber = actualPurchasePriceVal;
+        else fieldValuesToCreate.push({ categoryFieldId: pricingFields.actualPurchasePriceField.id, valueText: null, valueNumber: actualPurchasePriceVal, valueBoolean: null });
+      }
 
-        // Append or update actualPurchasePriceCode
+      if (actualPurchasePriceCodeVal !== null) {
         const codeIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.actualPurchasePriceCodeField.id);
-        if (codeIdx >= 0) {
-          fieldValuesToCreate[codeIdx].valueText = actualPurchasePriceCodeVal;
-        } else if (actualPurchasePriceCodeVal !== null) {
-          fieldValuesToCreate.push({
-            categoryFieldId: pricingFields.actualPurchasePriceCodeField.id,
-            valueText: actualPurchasePriceCodeVal,
-            valueNumber: null,
-            valueBoolean: null,
-          });
-        }
+        if (codeIdx >= 0) fieldValuesToCreate[codeIdx].valueText = actualPurchasePriceCodeVal;
+        else fieldValuesToCreate.push({ categoryFieldId: pricingFields.actualPurchasePriceCodeField.id, valueText: actualPurchasePriceCodeVal, valueNumber: null, valueBoolean: null });
+      }
 
-        // Append or update sellingPrice
+      if (sellingPriceVal !== null) {
         const sIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.sellingPriceField.id);
-        if (sIdx >= 0) {
-          fieldValuesToCreate[sIdx].valueNumber = sellingPriceVal;
-        } else if (sellingPriceVal !== null) {
-          fieldValuesToCreate.push({
-            categoryFieldId: pricingFields.sellingPriceField.id,
-            valueText: null,
-            valueNumber: sellingPriceVal,
-            valueBoolean: null,
-          });
-        }
+        if (sIdx >= 0) fieldValuesToCreate[sIdx].valueNumber = sellingPriceVal;
+        else fieldValuesToCreate.push({ categoryFieldId: pricingFields.sellingPriceField.id, valueText: null, valueNumber: sellingPriceVal, valueBoolean: null });
+      }
 
-        // Append or update marginPercentage
+      if (marginVal !== null) {
         const mIdx = fieldValuesToCreate.findIndex((fv) => fv.categoryFieldId === pricingFields.marginPercentageField.id);
-        if (mIdx >= 0) {
-          fieldValuesToCreate[mIdx].valueNumber = marginVal;
-        } else if (marginVal !== null) {
-          fieldValuesToCreate.push({
-            categoryFieldId: pricingFields.marginPercentageField.id,
-            valueText: null,
-            valueNumber: marginVal,
-            valueBoolean: null,
-          });
-        }
+        if (mIdx >= 0) fieldValuesToCreate[mIdx].valueNumber = marginVal;
+        else fieldValuesToCreate.push({ categoryFieldId: pricingFields.marginPercentageField.id, valueText: null, valueNumber: marginVal, valueBoolean: null });
       }
+    }
 
-      const product = await tx.product.create({
-        data: {
-          companyId,
-          categoryId: input.categoryId,
-          name,
-          barcode,
-          stockQuantity,
-          isArchived: false,
-          vendorId: input.vendorId || null,
-          purchaseDate: input.purchaseDate?.trim() || null,
-        },
+    const product = await tx.product.create({
+      data: {
+        companyId,
+        categoryId: input.categoryId,
+        name,
+        barcode,
+        stockQuantity,
+        isArchived: false,
+        vendorId: input.vendorId || null,
+        purchaseDate: input.purchaseDate?.trim() || null,
+      },
+    });
+
+    if (fieldValuesToCreate.length > 0) {
+      await tx.productFieldValue.createMany({
+        data: fieldValuesToCreate.map((fv) => ({
+          productId: product.id,
+          categoryFieldId: fv.categoryFieldId,
+          valueText: fv.valueText,
+          valueNumber: fv.valueNumber,
+          valueBoolean: fv.valueBoolean,
+        })),
       });
+    }
 
-      if (fieldValuesToCreate.length > 0) {
-        await tx.productFieldValue.createMany({
-          data: fieldValuesToCreate.map((fv) => ({
-            productId: product.id,
-            categoryFieldId: fv.categoryFieldId,
-            valueText: fv.valueText,
-            valueNumber: fv.valueNumber,
-            valueBoolean: fv.valueBoolean,
-          })),
-        });
-      }
+    return product;
+  }
 
-      return product;
+  /**
+   * Creates a new Product with permanent barcode and dynamic field values inside a database transaction.
+   */
+  public async createProduct(input: CreateProductRequest): Promise<ProductDto> {
+    const companyId = authService.getAuthenticatedCompanyId();
+    const prisma = getPrismaClient();
+
+    const createdProduct = await prisma.$transaction(async (tx) => {
+      return this.createProductWithTx(tx, companyId, input);
     });
 
     return this.getProductById(createdProduct.id);
   }
 
-  /**
-   * Updates an existing Product.
-   * Barcode, category, and ID are immutable.
-   */
   public async updateProduct(input: UpdateProductRequest): Promise<ProductDto> {
     const companyId = authService.getAuthenticatedCompanyId();
     const prisma = getPrismaClient();
@@ -1196,8 +1141,8 @@ export class ProductService {
       }
     } else if (rawPurchasePrice !== undefined && rawPurchasePrice !== null && String(rawPurchasePrice).trim() !== '') {
       const num = typeof rawPurchasePrice === 'number' ? rawPurchasePrice : parseFloat(String(rawPurchasePrice));
-      if (isNaN(num) || num < 0) {
-        throw new Error('Purchase Price must be a valid non-negative number.');
+      if (isNaN(num) || num <= 0) {
+        throw new Error('Purchase Price (₹) must be a valid number greater than 0.');
       }
       purchasePriceVal = num;
       if (additionalChargesVal === null) {
@@ -1212,8 +1157,8 @@ export class ProductService {
 
     if (rawSellingPrice !== undefined && rawSellingPrice !== null && String(rawSellingPrice).trim() !== '') {
       const spNum = typeof rawSellingPrice === 'number' ? rawSellingPrice : parseFloat(String(rawSellingPrice));
-      if (isNaN(spNum) || spNum < 0) {
-        throw new Error('Selling Price must be a valid non-negative number.');
+      if (isNaN(spNum) || spNum <= 0) {
+        throw new Error('Selling Price (₹) must be a valid number greater than 0.');
       }
       sellingPriceVal = Math.round(spNum * 100) / 100;
     }
