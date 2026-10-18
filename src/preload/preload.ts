@@ -137,7 +137,7 @@ const posDesktopApi: PosDesktopApi = Object.freeze({
   printBarcode: (input: any): Promise<IpcResult<{ printed: boolean }>> => {
     return ipcRenderer.invoke(CHANNELS.PRODUCT_PRINT_BARCODE, input);
   },
-  generateBarcode: (input: { productName: string; categoryName: string }): Promise<IpcResult<string>> => {
+  generateBarcode: (input: { productName: string; categoryName: string; existingBarcodes?: string[] }): Promise<IpcResult<string>> => {
     return ipcRenderer.invoke(CHANNELS.PRODUCT_GENERATE_BARCODE, input);
   },
   getCurrentMetalRates: (): Promise<IpcResult<any>> => {

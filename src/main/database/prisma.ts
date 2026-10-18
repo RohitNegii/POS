@@ -44,7 +44,11 @@ export async function initializeDatabase(): Promise<void> {
   }
 
   const client = new PrismaClient({
-    datasourceUrl: paths.databaseUrl,
+    datasources: {
+      db: {
+        url: paths.databaseUrl,
+      },
+    },
     log: ['error', 'warn'],
   });
 
@@ -391,6 +395,12 @@ export async function initializeDatabase(): Promise<void> {
       "transporter_name" TEXT,
       "vehicle_number" TEXT,
       "subtotal" REAL NOT NULL DEFAULT 0,
+      "cgst_rate" REAL NOT NULL DEFAULT 0,
+      "cgst_amount" REAL NOT NULL DEFAULT 0,
+      "sgst_rate" REAL NOT NULL DEFAULT 0,
+      "sgst_amount" REAL NOT NULL DEFAULT 0,
+      "igst_rate" REAL NOT NULL DEFAULT 0,
+      "igst_amount" REAL NOT NULL DEFAULT 0,
       "tax_amount" REAL NOT NULL DEFAULT 0,
       "total_amount" REAL NOT NULL DEFAULT 0,
       "paid_amount" REAL NOT NULL DEFAULT 0,
@@ -426,6 +436,24 @@ export async function initializeDatabase(): Promise<void> {
       }
       if (!pCols.some((c) => c.name === 'subtotal')) {
         await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "subtotal" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'cgst_rate')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "cgst_rate" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'cgst_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "cgst_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'sgst_rate')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "sgst_rate" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'sgst_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "sgst_amount" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'igst_rate')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "igst_rate" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!pCols.some((c) => c.name === 'igst_amount')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "igst_amount" REAL NOT NULL DEFAULT 0;');
       }
       if (!pCols.some((c) => c.name === 'tax_amount')) {
         await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "tax_amount" REAL NOT NULL DEFAULT 0;');

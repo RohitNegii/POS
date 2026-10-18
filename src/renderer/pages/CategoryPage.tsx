@@ -48,8 +48,8 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ session }) => {
     try {
       const res = await deleteCategory(target.id);
       showSuccess(`Category "${res.name}" has been permanently deleted.`);
-    } catch {
-      // Handled by error useEffect
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to delete category.');
     }
   };
 

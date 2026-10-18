@@ -201,6 +201,8 @@ export const CategoryFieldsModal: React.FC<CategoryFieldsModalProps> = ({
       if (success) {
         showSuccess(`Field "${trimmedName}" updated successfully.`);
         handleCloseForm();
+      } else {
+        showError(error || `Failed to update field "${trimmedName}".`);
       }
     } else {
       const success = await createField({
@@ -214,6 +216,8 @@ export const CategoryFieldsModal: React.FC<CategoryFieldsModalProps> = ({
       if (success) {
         showSuccess(`Field "${trimmedName}" added successfully.`);
         handleCloseForm();
+      } else {
+        showError(error || `Failed to add field "${trimmedName}".`);
       }
     }
   };
@@ -223,6 +227,8 @@ export const CategoryFieldsModal: React.FC<CategoryFieldsModalProps> = ({
     if (success) {
       showSuccess('Field deleted successfully.');
       setDeletingFieldId(null);
+    } else {
+      showError(error || 'Failed to delete field.');
     }
   };
 

@@ -297,6 +297,8 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
           showSuccess(`Attribute "${trimmedName}" updated.`);
           setIsFieldEditorOpen(false);
           setEditingFieldId(null);
+        } else {
+          showError(fieldsHookError || `Failed to update attribute "${trimmedName}".`);
         }
       } else {
         const success = await createField({
@@ -311,6 +313,8 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
           showSuccess(`Attribute "${trimmedName}" added to category.`);
           setIsFieldEditorOpen(false);
           setEditingFieldId(null);
+        } else {
+          showError(fieldsHookError || `Failed to add attribute "${trimmedName}".`);
         }
       }
     } else {
@@ -372,6 +376,8 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
       if (success) {
         showSuccess('Attribute removed.');
         setDeletingFieldId(null);
+      } else {
+        showError(fieldsHookError || 'Failed to remove attribute.');
       }
     } else {
       setDraftFields((prev) => prev.filter((f) => f.tempId !== fieldId));

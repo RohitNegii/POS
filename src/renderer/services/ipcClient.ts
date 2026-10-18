@@ -267,7 +267,7 @@ export const ipcClient = {
   },
 
   async generateBarcode(
-    input: { productName: string; categoryName: string }
+    input: { productName: string; categoryName: string; existingBarcodes?: string[] }
   ): Promise<IpcResult<string>> {
     if (!window.posApi) {
       return {

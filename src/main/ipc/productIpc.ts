@@ -96,12 +96,15 @@ export function registerProductIpcHandlers(): void {
     IPC_CHANNELS.PRODUCT_GENERATE_BARCODE,
     async (
       _event,
-      input: { productName: string; categoryName: string }
+      input: { productName: string; categoryName: string; existingBarcodes?: string[] }
     ): Promise<IpcResult<string>> => {
       try {
         const barcode = await productService.generatePermanentBarcode(
           input.productName,
-          input.categoryName
+          input.categoryName,
+          undefined,
+          undefined,
+          input.existingBarcodes
         );
         return { success: true, data: barcode };
       } catch (error) {

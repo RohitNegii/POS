@@ -106,6 +106,8 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
         if (res) {
           showSuccess(`Vendor "${res.name}" updated successfully.`);
           setIsModalOpen(false);
+        } else {
+          showError(error || 'Failed to update vendor. Please verify details.');
         }
       } else {
         const res = await createVendor({
@@ -120,8 +122,12 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
         if (res) {
           showSuccess(`Vendor "${res.name}" created successfully.`);
           setIsModalOpen(false);
+        } else {
+          showError(error || 'Failed to create vendor. Please verify details.');
         }
       }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Error submitting vendor details.');
     } finally {
       setSubmitting(false);
     }
@@ -131,9 +137,15 @@ export const VendorsPage: React.FC<VendorsPageProps> = ({ session: _session }) =
     if (!vendorToDelete) return;
     const target = vendorToDelete;
     setVendorToDelete(null);
-    const success = await deleteVendor(target.id);
-    if (success) {
-      showSuccess(`Vendor "${target.name}" removed successfully.`);
+    try {
+      const success = await deleteVendor(target.id);
+      if (success) {
+        showSuccess(`Vendor "${target.name}" removed successfully.`);
+      } else {
+        showError(error || `Failed to remove vendor "${target.name}".`);
+      }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : `Failed to remove vendor "${target.name}".`);
     }
   };
 

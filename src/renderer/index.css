@@ -48,6 +48,11 @@
 
 
 @media print {
+  @page {
+    size: auto;
+    margin: 8mm 10mm;
+  }
+
   html,
   body {
     height: auto !important;
@@ -65,13 +70,186 @@
     background-color: #ffffff !important;
   }
 
-  /* CRITICAL: Never print modal backdrops, darkened overlays, or dialog shadows */
-  .fixed.inset-0,
-  .backdrop-blur-sm,
-  .backdrop-blur-xs,
-  [role="dialog"] {
+  /* CRITICAL: Hide app shell, sidebar, header, navigation, and background action controls */
+  aside,
+  nav,
+  header,
+  #root > div > aside,
+  #root > div > div > header,
+  .print\:hidden,
+  [data-no-print],
+  button:not(.print\:block) {
     display: none !important;
     visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    max-width: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Reset outer application flex/grid shells to allow normal document flow */
+  #root,
+  #root > div,
+  #root > div > div,
+  main {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  /* Hide background page content when bill or receipt modal is open */
+  body:has(#printable-purchase-bill) main > *:not(.fixed.inset-0),
+  body:has(#printable-receipt) main > *:not(.fixed.inset-0),
+  body.printing-purchase-bill main > *:not(.fixed.inset-0),
+  body.printing-receipt main > *:not(.fixed.inset-0) {
+    display: none !important;
+  }
+
+  /* Modal backdrops that DO NOT contain printable elements must remain hidden */
+  .fixed.inset-0:not(:has(#printable-purchase-bill)):not(:has(#printable-receipt)):not(:has(#printable-barcode-slip)) {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Allow modal to print cleanly without backdrop overlay or shadows */
+  .fixed.inset-0:has(#printable-purchase-bill),
+  .fixed.inset-0:has(#printable-receipt),
+  body.printing-purchase-bill .fixed.inset-0,
+  body.printing-receipt .fixed.inset-0 {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+
+  .fixed.inset-0:has(#printable-purchase-bill) > div,
+  .fixed.inset-0:has(#printable-receipt) > div,
+  body.printing-purchase-bill .fixed.inset-0 > div,
+  body.printing-receipt .fixed.inset-0 > div {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  /* Printable Purchase Bill formal print typography and borders */
+  #printable-purchase-bill,
+  #printable-purchase-bill * {
+    overflow: visible !important;
+    max-height: none !important;
+    box-sizing: border-box !important;
+  }
+
+  #printable-purchase-bill {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 2mm 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+    line-height: 1.35 !important;
+  }
+
+  #printable-purchase-bill table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+  }
+
+  #printable-purchase-bill thead {
+    display: table-header-group !important;
+  }
+
+  #printable-purchase-bill tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  #printable-purchase-bill th,
+  #printable-purchase-bill td {
+    padding: 5px 7px !important;
+  }
+
+  /* Printable Customer Receipt (Thermal / 80mm POS style & A4 Tax Invoice) */
+  #printable-receipt,
+  #printable-receipt * {
+    overflow: visible !important;
+    max-height: none !important;
+    box-sizing: border-box !important;
+  }
+
+  #printable-receipt {
+    display: block !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    line-height: 1.35 !important;
+  }
+
+  body.print-layout-thermal #printable-receipt,
+  #printable-receipt:not(.max-w-\[210mm\]) {
+    max-width: 80mm !important;
+    margin: 0 auto !important;
+    padding: 2mm !important;
+    font-size: 11px !important;
+  }
+
+  body.print-layout-a4 #printable-receipt {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 2mm 0 !important;
+    font-size: 12px !important;
+  }
+
+  #printable-receipt table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+  }
+
+  #printable-receipt thead {
+    display: table-header-group !important;
+  }
+
+  #printable-receipt tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  #printable-receipt div,
+  #printable-receipt p,
+  #printable-receipt span,
+  #printable-receipt td,
+  #printable-receipt th {
+    color: #000000 !important;
   }
 
   /* When printing barcode stickers */

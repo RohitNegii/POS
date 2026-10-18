@@ -325,6 +325,7 @@ export class PurchaseService {
           name: prodName,
           barcode: prodBarcode,
           category: prodCategoryName,
+          createdFromPurchase: true,
         });
       }
 
@@ -402,8 +403,27 @@ export class PurchaseService {
     }
 
     billSubtotal = Math.round(billSubtotal * 100) / 100;
-    billTaxAmount = Math.round(billTaxAmount * 100) / 100;
-    const billGrandTotal = Math.round((billSubtotal + billTaxAmount) * 100) / 100;
+
+    // Bill-level GST percentages & calculated amounts
+    const rawBillCgstRate = typeof input.cgstRate === 'number' ? input.cgstRate : parseFloat(String(input.cgstRate || 0));
+    const billCgstRate = isNaN(rawBillCgstRate) || rawBillCgstRate < 0 ? 0 : rawBillCgstRate;
+
+    const rawBillSgstRate = typeof input.sgstRate === 'number' ? input.sgstRate : parseFloat(String(input.sgstRate || 0));
+    const billSgstRate = isNaN(rawBillSgstRate) || rawBillSgstRate < 0 ? 0 : rawBillSgstRate;
+
+    const rawBillIgstRate = typeof input.igstRate === 'number' ? input.igstRate : parseFloat(String(input.igstRate || 0));
+    const billIgstRate = isNaN(rawBillIgstRate) || rawBillIgstRate < 0 ? 0 : rawBillIgstRate;
+
+    const billCgstAmount = billCgstRate > 0 ? Math.round(billSubtotal * (billCgstRate / 100) * 100) / 100 : 0;
+    const billSgstAmount = billSgstRate > 0 ? Math.round(billSubtotal * (billSgstRate / 100) * 100) / 100 : 0;
+    const billIgstAmount = billIgstRate > 0 ? Math.round(billSubtotal * (billIgstRate / 100) * 100) / 100 : 0;
+
+    let computedTaxAmount = Math.round((billCgstAmount + billSgstAmount + billIgstAmount) * 100) / 100;
+    if (computedTaxAmount === 0 && billTaxAmount > 0) {
+      computedTaxAmount = Math.round(billTaxAmount * 100) / 100;
+    }
+
+    const billGrandTotal = Math.round((billSubtotal + computedTaxAmount) * 100) / 100;
 
     // 5. Payment details calculation
     const purchaseDate = input.purchaseDate?.trim() || getLocalDateString();
@@ -475,7 +495,13 @@ export class PurchaseService {
           transporterName: input.transporterName?.trim() || null,
           vehicleNumber: input.vehicleNumber?.trim() || null,
           subtotal: billSubtotal,
-          taxAmount: billTaxAmount,
+          cgstRate: billCgstRate,
+          cgstAmount: billCgstAmount,
+          sgstRate: billSgstRate,
+          sgstAmount: billSgstAmount,
+          igstRate: billIgstRate,
+          igstAmount: billIgstAmount,
+          taxAmount: computedTaxAmount,
           totalAmount: billGrandTotal,
           paidAmount: amountPaid,
           balanceAmount: balanceAmount,
@@ -489,6 +515,7 @@ export class PurchaseService {
       // Insert all purchase items
       for (const item of validatedItems) {
         let finalProductId = item.productId;
+        let actualBarcode = item.barcode;
 
         // If product was drafted in purchase entry (not yet in DB), create it now atomically
         if (item.productDraft) {
@@ -504,6 +531,18 @@ export class PurchaseService {
             item.quantityBought
           );
           finalProductId = createdProduct.id;
+          actualBarcode = createdProduct.barcode;
+        }
+
+        let detailsJson = item.detailsJson;
+        if (item.productDraft && actualBarcode) {
+          try {
+            const parsedDetails = detailsJson ? JSON.parse(detailsJson) : {};
+            parsedDetails.barcode = actualBarcode;
+            detailsJson = JSON.stringify(parsedDetails);
+          } catch {
+            // retain detailsJson
+          }
         }
 
         await tx.purchaseItem.create({
@@ -512,7 +551,7 @@ export class PurchaseService {
             productId: finalProductId,
             productName: item.productName,
             itemDescription: item.itemDescription,
-            barcode: item.barcode,
+            barcode: actualBarcode,
             categoryName: item.categoryName,
             hsnCode: item.hsnCode,
             quantityBought: item.quantityBought,
@@ -528,40 +567,22 @@ export class PurchaseService {
             igstRate: item.igstRate,
             igstAmount: item.igstAmount,
             totalAmount: item.totalAmount,
-            detailsJson: item.detailsJson,
+            detailsJson,
           },
         });
 
-        // Reconcile stock for existing products: if existing product with previous purchases, increment stock
+        // Reconcile stock for existing products: always increment inward stock
         if (!item.productDraft) {
-          const previousPurchaseCount = await tx.purchaseItem.count({
-            where: {
-              productId: finalProductId,
-              purchaseId: { not: purchase.id },
+          await tx.product.update({
+            where: { id: finalProductId },
+            data: {
+              stockQuantity: {
+                increment: item.quantityBought,
+              },
+              vendorId: vendor.id,
+              purchaseDate,
             },
           });
-
-          if (previousPurchaseCount > 0) {
-            await tx.product.update({
-              where: { id: finalProductId },
-              data: {
-                stockQuantity: {
-                  increment: item.quantityBought,
-                },
-                vendorId: vendor.id,
-                purchaseDate,
-              },
-            });
-          } else {
-            await tx.product.update({
-              where: { id: finalProductId },
-              data: {
-                stockQuantity: item.quantityBought,
-                vendorId: vendor.id,
-                purchaseDate,
-              },
-            });
-          }
         }
 
         // Synchronize latest purchase pricing into productFieldValue so Products & Barcodes reflects it
@@ -771,15 +792,25 @@ export class PurchaseService {
         if (!prod) {
           throw new Error(`Product with ID "${item.productId}" was not found or does not belong to your company.`);
         }
-        prodName = prod.name;
+        prodName = item.productName?.trim() || prod.name;
         prodBarcode = prod.barcode;
         prodCategoryName = prod.category?.name || null;
 
-        // Extract details snapshot
+        // Extract details snapshot, preserving createdFromPurchase flag if it had one
+        const oldItemMatch = existing.items.find((oi) => oi.productId === prod.id);
+        let wasCreatedFromPurchase = false;
+        try {
+          if (oldItemMatch?.detailsJson) {
+            const parsed = JSON.parse(oldItemMatch.detailsJson);
+            if (parsed.createdFromPurchase) wasCreatedFromPurchase = true;
+          }
+        } catch {}
+
         const snapshot: Record<string, any> = {
-          name: prod.name,
+          name: prodName,
           barcode: prod.barcode,
           category: prod.category?.name,
+          createdFromPurchase: wasCreatedFromPurchase,
         };
         for (const fv of prod.fieldValues) {
           if (fv.categoryField?.fieldKey) {
@@ -798,6 +829,7 @@ export class PurchaseService {
           name: prodName,
           barcode: prodBarcode,
           category: prodCategoryName,
+          createdFromPurchase: true,
         });
       }
 
@@ -875,8 +907,33 @@ export class PurchaseService {
     }
 
     billSubtotal = Math.round(billSubtotal * 100) / 100;
-    billTaxAmount = Math.round(billTaxAmount * 100) / 100;
-    const billGrandTotal = Math.round((billSubtotal + billTaxAmount) * 100) / 100;
+
+    // Bill-level GST percentages & calculated amounts
+    const rawBillCgstRate = input.cgstRate !== undefined
+      ? (typeof input.cgstRate === 'number' ? input.cgstRate : parseFloat(String(input.cgstRate || 0)))
+      : (typeof (existing as any).cgstRate === 'number' ? (existing as any).cgstRate : 0);
+    const billCgstRate = isNaN(rawBillCgstRate) || rawBillCgstRate < 0 ? 0 : rawBillCgstRate;
+
+    const rawBillSgstRate = input.sgstRate !== undefined
+      ? (typeof input.sgstRate === 'number' ? input.sgstRate : parseFloat(String(input.sgstRate || 0)))
+      : (typeof (existing as any).sgstRate === 'number' ? (existing as any).sgstRate : 0);
+    const billSgstRate = isNaN(rawBillSgstRate) || rawBillSgstRate < 0 ? 0 : rawBillSgstRate;
+
+    const rawBillIgstRate = input.igstRate !== undefined
+      ? (typeof input.igstRate === 'number' ? input.igstRate : parseFloat(String(input.igstRate || 0)))
+      : (typeof (existing as any).igstRate === 'number' ? (existing as any).igstRate : 0);
+    const billIgstRate = isNaN(rawBillIgstRate) || rawBillIgstRate < 0 ? 0 : rawBillIgstRate;
+
+    const billCgstAmount = billCgstRate > 0 ? Math.round(billSubtotal * (billCgstRate / 100) * 100) / 100 : 0;
+    const billSgstAmount = billSgstRate > 0 ? Math.round(billSubtotal * (billSgstRate / 100) * 100) / 100 : 0;
+    const billIgstAmount = billIgstRate > 0 ? Math.round(billSubtotal * (billIgstRate / 100) * 100) / 100 : 0;
+
+    let computedTaxAmount = Math.round((billCgstAmount + billSgstAmount + billIgstAmount) * 100) / 100;
+    if (computedTaxAmount === 0 && billTaxAmount > 0) {
+      computedTaxAmount = Math.round(billTaxAmount * 100) / 100;
+    }
+
+    const billGrandTotal = Math.round((billSubtotal + computedTaxAmount) * 100) / 100;
 
     // 5. Payment details calculation
     const purchaseDate = input.purchaseDate?.trim() || existing.purchaseDate || getLocalDateString();
@@ -920,17 +977,75 @@ export class PurchaseService {
 
     // 6. Transaction: Revert old inventory increments, delete old items, insert new items & increment new inventory, update purchase
     await prisma.$transaction(async (tx) => {
-      // Revert stock from old items
+      // Reconcile stock from old items and clean up products removed from this bill
+      const keptProductIds = new Set(validatedItems.map((it) => it.productId));
+
       for (const oldItem of existing.items) {
-        if (oldItem.productId) {
-          await tx.product.update({
+        if (!oldItem.productId) continue;
+
+        // If product was removed from this bill during edit
+        if (!keptProductIds.has(oldItem.productId)) {
+          const prod = await tx.product.findUnique({
             where: { id: oldItem.productId },
-            data: {
-              stockQuantity: {
-                decrement: oldItem.quantityBought,
+            select: { stockQuantity: true },
+          });
+
+          if (prod) {
+            await tx.product.update({
+              where: { id: oldItem.productId },
+              data: {
+                stockQuantity: Math.max(0, prod.stockQuantity - oldItem.quantityBought),
               },
+            });
+          }
+
+          // Check if this product was inwarded solely on this purchase bill and never sold
+          let wasDraftedInThisBill = false;
+          try {
+            if (oldItem.detailsJson) {
+              const parsed = JSON.parse(oldItem.detailsJson);
+              if (parsed.createdFromPurchase || parsed.isDraftProduct) {
+                wasDraftedInThisBill = true;
+              }
+            }
+          } catch {}
+
+          const otherPurchases = await tx.purchaseItem.count({
+            where: {
+              productId: oldItem.productId,
+              purchaseId: { not: existing.id },
             },
           });
+          const sales = await tx.billItem.count({
+            where: {
+              productId: oldItem.productId,
+            },
+          });
+
+          if (wasDraftedInThisBill && otherPurchases === 0 && sales === 0) {
+            // Remove orphan product completely so it doesn't linger in Products & Barcodes
+            await tx.productFieldValue.deleteMany({
+              where: { productId: oldItem.productId },
+            });
+            await tx.product.delete({
+              where: { id: oldItem.productId },
+            });
+          }
+        } else {
+          // Product is retained on this bill; decrement old quantity so new quantity can be applied cleanly
+          const prod = await tx.product.findUnique({
+            where: { id: oldItem.productId },
+            select: { stockQuantity: true },
+          });
+
+          if (prod) {
+            await tx.product.update({
+              where: { id: oldItem.productId },
+              data: {
+                stockQuantity: Math.max(0, prod.stockQuantity - oldItem.quantityBought),
+              },
+            });
+          }
         }
       }
 
@@ -942,6 +1057,7 @@ export class PurchaseService {
       // Insert new items and apply new inventory increments
       for (const item of validatedItems) {
         let finalProductId = item.productId;
+        let actualBarcode = item.barcode;
 
         // If product was drafted in purchase entry (not yet in DB), create it now atomically
         if (item.productDraft) {
@@ -957,6 +1073,18 @@ export class PurchaseService {
             item.quantityBought
           );
           finalProductId = createdProduct.id;
+          actualBarcode = createdProduct.barcode;
+        }
+
+        let detailsJson = item.detailsJson;
+        if (item.productDraft && actualBarcode) {
+          try {
+            const parsedDetails = detailsJson ? JSON.parse(detailsJson) : {};
+            parsedDetails.barcode = actualBarcode;
+            detailsJson = JSON.stringify(parsedDetails);
+          } catch {
+            // retain detailsJson
+          }
         }
 
         await tx.purchaseItem.create({
@@ -965,7 +1093,7 @@ export class PurchaseService {
             productId: finalProductId,
             productName: item.productName,
             itemDescription: item.itemDescription,
-            barcode: item.barcode,
+            barcode: actualBarcode,
             categoryName: item.categoryName,
             hsnCode: item.hsnCode,
             quantityBought: item.quantityBought,
@@ -981,7 +1109,7 @@ export class PurchaseService {
             igstRate: item.igstRate,
             igstAmount: item.igstAmount,
             totalAmount: item.totalAmount,
-            detailsJson: item.detailsJson,
+            detailsJson,
           },
         });
 
@@ -989,6 +1117,7 @@ export class PurchaseService {
           await tx.product.update({
             where: { id: finalProductId },
             data: {
+              name: item.productName,
               stockQuantity: {
                 increment: item.quantityBought,
               },
@@ -1081,7 +1210,13 @@ export class PurchaseService {
           transporterName: input.transporterName !== undefined ? (input.transporterName?.trim() || null) : (existing as any).transporterName,
           vehicleNumber: input.vehicleNumber !== undefined ? (input.vehicleNumber?.trim() || null) : (existing as any).vehicleNumber,
           subtotal: billSubtotal,
-          taxAmount: billTaxAmount,
+          cgstRate: billCgstRate,
+          cgstAmount: billCgstAmount,
+          sgstRate: billSgstRate,
+          sgstAmount: billSgstAmount,
+          igstRate: billIgstRate,
+          igstAmount: billIgstAmount,
+          taxAmount: computedTaxAmount,
           totalAmount: billGrandTotal,
           paidAmount: amountPaid,
           balanceAmount: balanceAmount,
@@ -1183,14 +1318,70 @@ export class PurchaseService {
 
     const existing = await prisma.purchase.findUnique({
       where: { id },
+      include: {
+        items: true,
+      },
     });
 
     if (!existing || existing.companyId !== companyId) {
       throw new Error('Purchase record not found or access denied.');
     }
 
-    await prisma.purchase.delete({
-      where: { id },
+    await prisma.$transaction(async (tx) => {
+      // 1. Reconcile stock and clean up orphan products created exclusively for this purchase
+      for (const item of existing.items) {
+        if (!item.productId) continue;
+
+        const prod = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: { stockQuantity: true },
+        });
+
+        if (prod) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stockQuantity: Math.max(0, prod.stockQuantity - item.quantityBought),
+            },
+          });
+        }
+
+        let wasDraftedInThisBill = false;
+        try {
+          if (item.detailsJson) {
+            const parsed = JSON.parse(item.detailsJson);
+            if (parsed.createdFromPurchase || parsed.isDraftProduct) {
+              wasDraftedInThisBill = true;
+            }
+          }
+        } catch {}
+
+        const otherPurchases = await tx.purchaseItem.count({
+          where: {
+            productId: item.productId,
+            purchaseId: { not: existing.id },
+          },
+        });
+        const sales = await tx.billItem.count({
+          where: {
+            productId: item.productId,
+          },
+        });
+
+        if (wasDraftedInThisBill && otherPurchases === 0 && sales === 0) {
+          await tx.productFieldValue.deleteMany({
+            where: { productId: item.productId },
+          });
+          await tx.product.delete({
+            where: { id: item.productId },
+          });
+        }
+      }
+
+      // 2. Delete purchase (purchaseItems cascade)
+      await tx.purchase.delete({
+        where: { id },
+      });
     });
 
     return { id };
@@ -1288,6 +1479,12 @@ export class PurchaseService {
       vehicleNumber: p.vehicleNumber || null,
       paymentDate,
       subtotal,
+      cgstRate: (p as any).cgstRate || 0,
+      cgstAmount: (p as any).cgstAmount || 0,
+      sgstRate: (p as any).sgstRate || 0,
+      sgstAmount: (p as any).sgstAmount || 0,
+      igstRate: (p as any).igstRate || 0,
+      igstAmount: (p as any).igstAmount || 0,
       taxAmount,
       totalAmount,
       paidAmount,

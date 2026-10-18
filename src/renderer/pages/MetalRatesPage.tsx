@@ -46,10 +46,14 @@ export const MetalRatesPage: React.FC<MetalRatesPageProps> = ({ session }) => {
         if (ratesRes.data.silverRate) {
           setSilverRate(String(ratesRes.data.silverRate.ratePerGram));
         }
+      } else if (!ratesRes.success && ratesRes.error) {
+        showError(ratesRes.error);
       }
 
       if (histRes.success) {
         setHistory(histRes.data);
+      } else if (!histRes.success && histRes.error) {
+        showError(histRes.error);
       }
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to load metal rates.');

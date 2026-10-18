@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { AuthSessionPayload, ProductDto, PurchaseDto } from '../../shared/types/ipc';
 import { BarcodeGraphic, BarcodePrintSize } from './BarcodeGraphic';
 import { generateActualPurchasePriceCode } from '../../shared/utils/purchaseCode';
+import { useToast } from '../context/ToastContext';
 
 export interface BatchBarcodePrintModalProps {
   purchase: PurchaseDto;
@@ -158,6 +159,7 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
   onClose,
   products = [],
 }) => {
+  const { showError, showSuccess } = useToast();
   // Load saved preferences with safe fallbacks
   const savedPrefs = useMemo(() => {
     try {
@@ -590,16 +592,22 @@ export const BatchBarcodePrintModal: React.FC<BatchBarcodePrintModalProps> = ({
         `;
 
         if (window.posApi?.printBarcode) {
-          await window.posApi.printBarcode({
+          const res = await window.posApi.printBarcode({
             html: fullHtml,
             widthMm: effectiveWidthMm,
             heightMm: effectiveHeightMm,
           });
+          if (res && !res.success) {
+            showError(res.error || 'Failed to print barcode labels.');
+          } else {
+            showSuccess(`Sent barcode labels to printer.`);
+          }
         } else {
           window.print();
         }
       } catch (err) {
         console.error('Batch barcode printing failed:', err);
+        showError(err instanceof Error ? err.message : 'Batch barcode printing failed.');
       } finally {
         setTimeout(() => {
           document.body.classList.remove('printing-barcode');

@@ -16,6 +16,7 @@ import { usePurchases } from '../hooks/usePurchases';
 import { ProductFormModal, FormBillItemDetails } from '../components/ProductFormModal';
 import { BarcodePrintModal } from '../components/BarcodePrintModal';
 import { BatchBarcodePrintModal } from '../components/BatchBarcodePrintModal';
+import { PurchaseBillModal } from '../components/PurchaseBillModal';
 import { ipcClient } from '../services/ipcClient';
 import { getLocalDateString } from '../../shared/utils/date';
 
@@ -39,6 +40,7 @@ export interface BillProductItem {
   quantityBought: number;
   unitCost: number; // Rate
   discount: number; // Disc (₹)
+  discountPercent?: number; // Disc (%)
   taxableAmount: number; // Total before tax = (qty * rate) - disc
   cgstRate: number;
   cgstAmount: number;
@@ -59,10 +61,50 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
   onCancelEdit,
 }) => {
   const { showError, showSuccess } = useToast();
-  const { vendors, refreshVendors, createVendor } = useVendors();
-  const { categories } = useCategories();
-  const { products, refreshProducts } = useProducts();
-  const { createPurchase, updatePurchase } = usePurchases();
+  const {
+    vendors,
+    refreshVendors,
+    createVendor,
+    error: vendorError,
+    clearError: clearVendorError,
+  } = useVendors();
+  const { categories, error: categoryError, clearError: clearCategoryError } = useCategories();
+  const { products, refreshProducts, error: productError, clearError: clearProductError } = useProducts();
+  const {
+    createPurchase,
+    updatePurchase,
+    error: purchaseError,
+    clearError: clearPurchaseError,
+  } = usePurchases();
+
+  // Surface hook errors via toast
+  useEffect(() => {
+    if (purchaseError) {
+      showError(purchaseError);
+      clearPurchaseError();
+    }
+  }, [purchaseError, showError, clearPurchaseError]);
+
+  useEffect(() => {
+    if (vendorError) {
+      showError(vendorError);
+      clearVendorError();
+    }
+  }, [vendorError, showError, clearVendorError]);
+
+  useEffect(() => {
+    if (productError) {
+      showError(productError);
+      clearProductError();
+    }
+  }, [productError, showError, clearProductError]);
+
+  useEffect(() => {
+    if (categoryError) {
+      showError(categoryError);
+      clearCategoryError();
+    }
+  }, [categoryError, showError, clearCategoryError]);
 
   useEffect(() => {
     void refreshVendors();
@@ -87,6 +129,11 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
 
   // Bill Items State
   const [items, setItems] = useState<BillProductItem[]>([]);
+
+  // Bill-Level GST Tax Rates (Applied percentage-wise on Final Bill Subtotal)
+  const [billCgstRate, setBillCgstRate] = useState<string | number>('0');
+  const [billSgstRate, setBillSgstRate] = useState<string | number>('0');
+  const [billIgstRate, setBillIgstRate] = useState<string | number>('0');
 
   // Quick Add Vendor Modal State
   const [isQuickAddVendorOpen, setIsQuickAddVendorOpen] = useState<boolean>(false);
@@ -113,6 +160,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
   // Submitting Purchase State
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [savedPurchase, setSavedPurchase] = useState<PurchaseDto | null>(null);
+  const [viewingSavedBillPurchase, setViewingSavedBillPurchase] = useState<PurchaseDto | null>(null);
 
   // Load existing purchase bill if editingPurchaseId is provided
   useEffect(() => {
@@ -156,6 +204,28 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
             : 'CASH'
         );
 
+        // Load bill-level GST rates
+        if (p.cgstRate !== undefined && p.cgstRate !== null && p.cgstRate > 0) {
+          setBillCgstRate(p.cgstRate);
+        } else {
+          const itemCgst = p.items.find((it) => it.cgstRate && it.cgstRate > 0)?.cgstRate;
+          setBillCgstRate(itemCgst || 0);
+        }
+
+        if (p.sgstRate !== undefined && p.sgstRate !== null && p.sgstRate > 0) {
+          setBillSgstRate(p.sgstRate);
+        } else {
+          const itemSgst = p.items.find((it) => it.sgstRate && it.sgstRate > 0)?.sgstRate;
+          setBillSgstRate(itemSgst || 0);
+        }
+
+        if (p.igstRate !== undefined && p.igstRate !== null && p.igstRate > 0) {
+          setBillIgstRate(p.igstRate);
+        } else {
+          const itemIgst = p.items.find((it) => it.igstRate && it.igstRate > 0)?.igstRate;
+          setBillIgstRate(itemIgst || 0);
+        }
+
         const loadedItems: BillProductItem[] = p.items.map((item, idx) => {
           const prod = products.find((prodItem) => prodItem.id === item.productId);
           let unitCostToUse = item.unitCost;
@@ -172,6 +242,9 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
 
           const gross = Math.round(item.quantityBought * unitCostToUse * 100) / 100;
           const discount = item.discount || 0;
+          const discountPercent = gross > 0 && discount > 0
+            ? Math.round((discount / gross) * 100 * 100) / 100
+            : 0;
           const taxableAmount = item.taxableAmount !== undefined && item.taxableAmount !== null
             ? item.taxableAmount
             : Math.max(0, gross - discount);
@@ -225,6 +298,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
             quantityBought: item.quantityBought,
             unitCost: unitCostToUse,
             discount,
+            discountPercent,
             taxableAmount,
             cgstRate,
             cgstAmount,
@@ -255,14 +329,11 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
     };
   }, [editingPurchaseId]);
 
-  // Calculation Helper
+  // Calculation Helper (Discount applied inside product; taxes applied on Final Bill Total)
   const calculateItemTotals = (
     qty: number,
     unitCost: number,
-    discount: number,
-    cgstRate: number,
-    sgstRate: number,
-    igstRate: number
+    discount: number
   ) => {
     const safeQty = isNaN(qty) || qty <= 0 ? 0 : qty;
     const safeCost = isNaN(unitCost) || unitCost < 0 ? 0 : unitCost;
@@ -270,58 +341,41 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
     const gross = Math.round(safeQty * safeCost * 100) / 100;
     const taxableAmount = Math.max(0, Math.round((gross - safeDiscount) * 100) / 100);
 
-    const safeCgstRate = isNaN(cgstRate) || cgstRate < 0 ? 0 : cgstRate;
-    const safeSgstRate = isNaN(sgstRate) || sgstRate < 0 ? 0 : sgstRate;
-    const safeIgstRate = isNaN(igstRate) || igstRate < 0 ? 0 : igstRate;
-
-    const cgstAmount = safeCgstRate > 0 ? Math.round(taxableAmount * (safeCgstRate / 100) * 100) / 100 : 0;
-    const sgstAmount = safeSgstRate > 0 ? Math.round(taxableAmount * (safeSgstRate / 100) * 100) / 100 : 0;
-    const igstAmount = safeIgstRate > 0 ? Math.round(taxableAmount * (safeIgstRate / 100) * 100) / 100 : 0;
-
-    const taxAmount = Math.round((cgstAmount + sgstAmount + igstAmount) * 100) / 100;
-    const taxRate = safeCgstRate + safeSgstRate + safeIgstRate;
-    const lineTotal = Math.round((taxableAmount + taxAmount) * 100) / 100;
-
     return {
       taxableAmount,
-      cgstRate: safeCgstRate,
-      cgstAmount,
-      sgstRate: safeSgstRate,
-      sgstAmount,
-      igstRate: safeIgstRate,
-      igstAmount,
-      taxRate,
-      taxAmount,
-      lineTotal,
+      cgstRate: 0,
+      cgstAmount: 0,
+      sgstRate: 0,
+      sgstAmount: 0,
+      igstRate: 0,
+      igstAmount: 0,
+      taxRate: 0,
+      taxAmount: 0,
+      lineTotal: taxableAmount,
     };
   };
 
-
-
-  // Calculate Subtotals, Taxes & Grand Total
+  // Calculate Subtotals, Taxes & Grand Total (GST applied on Subtotal)
   const totalTaxable = Math.round(
     items.reduce((acc, it) => acc + (it.taxableAmount || 0), 0) * 100
   ) / 100;
 
-  const totalCgst = Math.round(
-    items.reduce((acc, it) => acc + (it.cgstAmount || 0), 0) * 100
-  ) / 100;
+  const numCgstRate = parseFloat(String(billCgstRate || 0)) || 0;
+  const numSgstRate = parseFloat(String(billSgstRate || 0)) || 0;
+  const numIgstRate = parseFloat(String(billIgstRate || 0)) || 0;
 
-  const totalSgst = Math.round(
-    items.reduce((acc, it) => acc + (it.sgstAmount || 0), 0) * 100
-  ) / 100;
-
-  const totalIgst = Math.round(
-    items.reduce((acc, it) => acc + (it.igstAmount || 0), 0) * 100
-  ) / 100;
+  const totalCgst = numCgstRate > 0 ? Math.round(totalTaxable * (numCgstRate / 100) * 100) / 100 : 0;
+  const totalSgst = numSgstRate > 0 ? Math.round(totalTaxable * (numSgstRate / 100) * 100) / 100 : 0;
+  const totalIgst = numIgstRate > 0 ? Math.round(totalTaxable * (numIgstRate / 100) * 100) / 100 : 0;
 
   const totalTax = Math.round((totalCgst + totalSgst + totalIgst) * 100) / 100;
-
   const grandTotal = Math.round((totalTaxable + totalTax) * 100) / 100;
 
   const totalUnits = Math.round(
     items.reduce((acc, it) => acc + it.quantityBought, 0) * 100
   ) / 100;
+
+
 
   // Handle Quick Add Vendor
   const handleQuickAddVendorSubmit = async (e: React.FormEvent) => {
@@ -355,7 +409,11 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
         setQuickVendorBankName('');
         setQuickVendorAccountNo('');
         setQuickVendorIfsc('');
+      } else {
+        showError(vendorError || 'Failed to create vendor. Please check vendor details.');
       }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to create vendor.');
     } finally {
       setQuickVendorSubmitting(false);
     }
@@ -379,8 +437,12 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
         const full = await ipcClient.getProductById(item.productId);
         if (full.success && full.data) {
           target = full.data;
+        } else if (!full.success && full.error) {
+          showError(full.error);
         }
-      } catch {}
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'Failed to load product details.');
+      }
     }
     if (!target.categoryId && categories.length > 0) {
       const matched = categories.find(
@@ -405,6 +467,11 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
       quantityBought: item.quantityBought,
       unitCost: item.unitCost,
       discount: item.discount,
+      discountPercent: item.discountPercent !== undefined
+        ? item.discountPercent
+        : (item.quantityBought * item.unitCost > 0 && item.discount > 0
+            ? Math.round((item.discount / (item.quantityBought * item.unitCost)) * 100 * 100) / 100
+            : 0),
       taxableAmount: item.taxableAmount,
       cgstRate: item.cgstRate,
       cgstAmount: item.cgstAmount,
@@ -436,17 +503,15 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           : 0;
 
       const discToUse = billDetails?.discount ?? 0;
-      const cgstToUse = billDetails?.cgstRate ?? 0;
-      const sgstToUse = billDetails?.sgstRate ?? 0;
-      const igstToUse = billDetails?.igstRate ?? 0;
-
+      const discPctToUse = billDetails?.discountPercent !== undefined
+        ? billDetails.discountPercent
+        : (qtyToUse * costToUse > 0 && discToUse > 0
+            ? Math.round((discToUse / (qtyToUse * costToUse)) * 100 * 100) / 100
+            : 0);
       const calcs = calculateItemTotals(
         qtyToUse,
         costToUse,
-        discToUse,
-        cgstToUse,
-        sgstToUse,
-        igstToUse
+        discToUse
       );
 
       setItems((prev) =>
@@ -464,6 +529,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
             quantityBought: qtyToUse,
             unitCost: costToUse,
             discount: discToUse,
+            discountPercent: discPctToUse,
             productDraft: productDraft || it.productDraft,
             ...calcs,
           };
@@ -490,17 +556,15 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           : 0;
 
       const discToUse = billDetails?.discount ?? 0;
-      const cgstToUse = billDetails?.cgstRate ?? 0;
-      const sgstToUse = billDetails?.sgstRate ?? 0;
-      const igstToUse = billDetails?.igstRate ?? 0;
-
+      const discPctToUse = billDetails?.discountPercent !== undefined
+        ? billDetails.discountPercent
+        : (qtyToUse * costToUse > 0 && discToUse > 0
+            ? Math.round((discToUse / (qtyToUse * costToUse)) * 100 * 100) / 100
+            : 0);
       const calcs = calculateItemTotals(
         qtyToUse,
         costToUse,
-        discToUse,
-        cgstToUse,
-        sgstToUse,
-        igstToUse
+        discToUse
       );
 
       const newItem: BillProductItem = {
@@ -516,6 +580,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
         quantityBought: qtyToUse,
         unitCost: costToUse,
         discount: discToUse,
+        discountPercent: discPctToUse,
         productDraft,
         ...calcs,
       };
@@ -618,6 +683,12 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           paymentMethod,
           paymentStatus: status,
           amountPaid: paid,
+          cgstRate: numCgstRate,
+          cgstAmount: totalCgst,
+          sgstRate: numSgstRate,
+          sgstAmount: totalSgst,
+          igstRate: numIgstRate,
+          igstAmount: totalIgst,
           items: payloadItems,
         });
 
@@ -627,6 +698,8 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           );
           setSavedPurchase(res);
           void refreshProducts();
+        } else {
+          showError(purchaseError || 'Failed to update purchase bill. Please verify the entered data.');
         }
       } else {
         const res = await createPurchase({
@@ -640,6 +713,12 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           paymentMethod,
           paymentStatus: status,
           amountPaid: paid,
+          cgstRate: numCgstRate,
+          cgstAmount: totalCgst,
+          sgstRate: numSgstRate,
+          sgstAmount: totalSgst,
+          igstRate: numIgstRate,
+          igstAmount: totalIgst,
           items: payloadItems,
         });
 
@@ -649,8 +728,12 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           );
           setSavedPurchase(res);
           void refreshProducts();
+        } else {
+          showError(purchaseError || 'Failed to save purchase bill. Please verify the entered data.');
         }
       }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Error processing purchase bill.');
     } finally {
       setSubmitting(false);
     }
@@ -660,6 +743,9 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
     setSavedPurchase(null);
     setItems([]);
     setInvoiceNumber('');
+    setBillCgstRate('0');
+    setBillSgstRate('0');
+    setBillIgstRate('0');
     if (editingPurchaseId && onCancelEdit) {
       onCancelEdit();
     }
@@ -1079,17 +1165,13 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
               <thead className="border-b border-cream-200/90 bg-cream-100/60 uppercase tracking-wider text-stone-600 font-bold text-[11px]">
                 <tr>
                   <th className="px-3 py-3 w-10 text-center">#</th>
-                  <th className="px-3 py-3 min-w-[200px]">Item Description</th>
-                  <th className="px-3 py-3 w-24">HSN Code</th>
+                  <th className="px-3 py-3 min-w-[220px]">Item Description</th>
+                  <th className="px-3 py-3 w-28">HSN Code</th>
                   <th className="px-3 py-3 w-20 text-center">Qty</th>
-                  <th className="px-3 py-3 w-24 text-right">Rate (₹)</th>
-                  <th className="px-3 py-3 w-20 text-right">Disc (₹)</th>
-                  <th className="px-3 py-3 w-24 text-right">Total (₹)</th>
-                  <th className="px-3 py-3 w-24 text-right">CGST</th>
-                  <th className="px-3 py-3 w-24 text-right">SGST</th>
-                  <th className="px-3 py-3 w-24 text-right">IGST</th>
-                  <th className="px-3 py-3 w-28 text-right">Final Total (₹)</th>
-                  <th className="px-3 py-3 w-28 text-right">Actions</th>
+                  <th className="px-3 py-3 w-28 text-right">Rate (₹)</th>
+                  <th className="px-3 py-3 w-28 text-right">Disc (%)</th>
+                  <th className="px-3 py-3 w-32 text-right">Total (₹)</th>
+                  <th className="px-3 py-3 w-32 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-cream-200/80">
@@ -1142,56 +1224,29 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
                       </span>
                     </td>
 
-                    {/* Disc (₹) */}
+                    {/* Disc */}
                     <td className="px-3 py-3 text-right">
-                      <span className="font-mono text-xs text-stone-700">
-                        {item.discount > 0 ? `₹${item.discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
-                      </span>
+                      {item.discount > 0 ? (
+                        <div>
+                          <span className="inline-block rounded-md bg-rose-50 border border-rose-200 px-1.5 py-0.5 font-mono font-bold text-rose-700 text-xs">
+                            {item.discountPercent !== undefined && item.discountPercent > 0
+                              ? `${item.discountPercent}%`
+                              : `${Math.round((item.discount / (item.quantityBought * item.unitCost || 1)) * 10000) / 100}%`}
+                          </span>
+                          <span className="block font-mono text-[10px] text-stone-500 mt-0.5">
+                            -₹{item.discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-stone-400 font-mono text-xs">—</span>
+                      )}
                     </td>
 
-                    {/* Total (Taxable = Qty * Rate - Disc) */}
+                    {/* Total (Net = Qty * Rate - Disc) */}
                     <td className="px-3 py-3 text-right">
-                      <div className="font-mono font-bold text-stone-900 text-xs">
+                      <span className="font-mono font-bold text-stone-900 text-xs">
                         ₹{item.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </div>
-                      <div className="text-[10px] text-stone-400">Taxable</div>
-                    </td>
-
-                    {/* CGST */}
-                    <td className="px-3 py-3 text-right">
-                      <div className="font-mono font-semibold text-emerald-800 text-xs">
-                        ₹{(item.cgstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </div>
-                      <div className="text-[10px] text-emerald-700/80 font-medium">
-                        ({item.cgstRate || 0}%)
-                      </div>
-                    </td>
-
-                    {/* SGST */}
-                    <td className="px-3 py-3 text-right">
-                      <div className="font-mono font-semibold text-emerald-800 text-xs">
-                        ₹{(item.sgstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </div>
-                      <div className="text-[10px] text-emerald-700/80 font-medium">
-                        ({item.sgstRate || 0}%)
-                      </div>
-                    </td>
-
-                    {/* IGST */}
-                    <td className="px-3 py-3 text-right">
-                      <div className="font-mono font-semibold text-blue-800 text-xs">
-                        ₹{(item.igstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </div>
-                      <div className="text-[10px] text-blue-700/80 font-medium">
-                        ({item.igstRate || 0}%)
-                      </div>
-                    </td>
-
-                    {/* Final Total */}
-                    <td className="px-3 py-3 text-right whitespace-nowrap">
-                      <div className="font-mono font-black text-amber-900 text-xs">
-                        ₹{item.lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </div>
+                      </span>
                     </td>
 
                     {/* Actions */}
@@ -1201,7 +1256,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
                           type="button"
                           onClick={() => handleOpenEditProduct(item)}
                           className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-900 transition shadow-2xs active:scale-95"
-                          title="Edit product, rates, quantity & taxes in form"
+                          title="Edit product, rates, quantity & discount in form"
                         >
                           <svg className="h-3 w-3 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -1240,61 +1295,149 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
         )}
       </div>
 
-      {/* STEP 4: Bill Totals & Submission Bottom Area */}
-      <div className="rounded-2xl border border-cream-300 bg-white p-5 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          {/* Left: Summary Stats & GST Breakdown */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs flex-1">
-            <div className="rounded-xl bg-cream-50/70 p-3 border border-cream-200/80">
-              <span className="text-stone-400 block font-semibold text-[11px]">Total Line Items</span>
-              <span className="text-sm font-bold text-stone-900 mt-0.5 block">{items.length} items ({totalUnits} units)</span>
+      {/* STEP 4: Bill Totals & GST Taxes on Final Bill */}
+      <div className="rounded-2xl border border-cream-300 bg-white p-5 shadow-sm space-y-5">
+        <div className="border-b border-cream-200/80 pb-4">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-100 border border-amber-300 text-amber-900 font-mono font-bold text-xs">
+              03
+            </span>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-stone-800">
+              Bill Taxes & Final Total
+            </h2>
+            <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 text-[10px] font-bold">
+              Applied on Final Bill Subtotal
+            </span>
+          </div>
+          <p className="text-[11px] text-stone-500 mt-1">
+            Admin can enter percentage-wise CGST, SGST, IGST below. The calculated amounts are added directly to the Final Bill Total.
+          </p>
+        </div>
+
+        {/* Tax Inputs & Summary Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+          {/* Inputs Section */}
+          <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+            {/* Bill Subtotal Display */}
+            <div className="rounded-xl bg-cream-50/70 p-3 border border-cream-200/80 flex flex-col justify-between">
+              <span className="text-stone-500 font-semibold text-[11px]">Bill Subtotal</span>
+              <div className="mt-1">
+                <span className="text-base font-black text-stone-900 font-mono block">
+                  ₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[10px] text-stone-400 block">{items.length} items ({totalUnits} units)</span>
+              </div>
             </div>
 
-            <div className="rounded-xl bg-cream-50/70 p-3 border border-cream-200/80">
-              <span className="text-stone-400 block font-semibold text-[11px]">Taxable Subtotal</span>
-              <span className="text-sm font-bold text-stone-900 font-mono mt-0.5 block">
-                ₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
+            {/* CGST Rate Input */}
+            <div className="rounded-xl bg-emerald-50/40 p-3 border border-emerald-200/60 flex flex-col justify-between">
+              <label htmlFor="bill-cgst-rate-input" className="block text-emerald-900 font-bold text-[11px] mb-1">
+                CGST Rate (%)
+              </label>
+              <div className="relative">
+                <input
+                  id="bill-cgst-rate-input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={billCgstRate}
+                  onChange={(e) => setBillCgstRate(e.target.value)}
+                  placeholder="0"
+                  disabled={submitting}
+                  className="w-full rounded-lg border border-emerald-300 bg-white pr-7 pl-2.5 py-1.5 text-xs font-mono font-bold text-stone-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                />
+                <span className="absolute inset-y-0 right-0 flex items-center pr-2 text-xs font-bold text-stone-400">
+                  %
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                <span className="text-emerald-700 font-medium">Tax Amount:</span>
+                <span className="font-mono font-bold text-emerald-900">
+                  ₹{totalCgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
             </div>
 
-            <div className="rounded-xl bg-emerald-50/50 p-3 border border-emerald-200/60">
-              <span className="text-emerald-700/80 block font-semibold text-[11px]">CGST Total</span>
-              <span className="text-sm font-bold text-emerald-900 font-mono mt-0.5 block">
-                ₹{totalCgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
+            {/* SGST Rate Input */}
+            <div className="rounded-xl bg-emerald-50/40 p-3 border border-emerald-200/60 flex flex-col justify-between">
+              <label htmlFor="bill-sgst-rate-input" className="block text-emerald-900 font-bold text-[11px] mb-1">
+                SGST Rate (%)
+              </label>
+              <div className="relative">
+                <input
+                  id="bill-sgst-rate-input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={billSgstRate}
+                  onChange={(e) => setBillSgstRate(e.target.value)}
+                  placeholder="0"
+                  disabled={submitting}
+                  className="w-full rounded-lg border border-emerald-300 bg-white pr-7 pl-2.5 py-1.5 text-xs font-mono font-bold text-stone-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                />
+                <span className="absolute inset-y-0 right-0 flex items-center pr-2 text-xs font-bold text-stone-400">
+                  %
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                <span className="text-emerald-700 font-medium">Tax Amount:</span>
+                <span className="font-mono font-bold text-emerald-900">
+                  ₹{totalSgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
             </div>
 
-            <div className="rounded-xl bg-emerald-50/50 p-3 border border-emerald-200/60">
-              <span className="text-emerald-700/80 block font-semibold text-[11px]">SGST Total</span>
-              <span className="text-sm font-bold text-emerald-900 font-mono mt-0.5 block">
-                ₹{totalSgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            <div className="rounded-xl bg-blue-50/50 p-3 border border-blue-200/60">
-              <span className="text-blue-700/80 block font-semibold text-[11px]">IGST Total</span>
-              <span className="text-sm font-bold text-blue-900 font-mono mt-0.5 block">
-                ₹{totalIgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            <div className="rounded-xl bg-amber-50/60 p-3 border border-amber-200/80">
-              <span className="text-amber-800/80 block font-semibold text-[11px]">Total GST Tax</span>
-              <span className="text-sm font-bold text-amber-950 font-mono mt-0.5 block">
-                ₹{totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
+            {/* IGST Rate Input */}
+            <div className="rounded-xl bg-blue-50/40 p-3 border border-blue-200/60 flex flex-col justify-between">
+              <label htmlFor="bill-igst-rate-input" className="block text-blue-900 font-bold text-[11px] mb-1">
+                IGST Rate (%)
+              </label>
+              <div className="relative">
+                <input
+                  id="bill-igst-rate-input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={billIgstRate}
+                  onChange={(e) => setBillIgstRate(e.target.value)}
+                  placeholder="0"
+                  disabled={submitting}
+                  className="w-full rounded-lg border border-blue-300 bg-white pr-7 pl-2.5 py-1.5 text-xs font-mono font-bold text-stone-900 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                />
+                <span className="absolute inset-y-0 right-0 flex items-center pr-2 text-xs font-bold text-stone-400">
+                  %
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                <span className="text-blue-700 font-medium">Tax Amount:</span>
+                <span className="font-mono font-bold text-blue-900">
+                  ₹{totalIgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Right: Grand Total & Save Button */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 border-t lg:border-t-0 lg:border-l border-cream-200/80 pt-4 lg:pt-0 lg:pl-6 shrink-0">
-            <div className="rounded-xl bg-gradient-to-br from-amber-50 via-cream-100 to-amber-100/60 border border-amber-300/80 p-3 sm:px-5 sm:py-2.5 text-right">
-              <span className="text-[10px] font-bold text-stone-500 uppercase tracking-widest block">
-                Final Bill Total
-              </span>
-              <span className="text-2xl sm:text-3xl font-black text-amber-800 font-mono tracking-tight block">
-                ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
+          {/* Right Summary Card & Save Button */}
+          <div className="lg:col-span-4 flex flex-col sm:flex-row lg:flex-col gap-3">
+            <div className="flex-1 rounded-xl bg-gradient-to-br from-amber-50 via-cream-100 to-amber-100/60 border border-amber-300/80 p-3.5 space-y-1.5 text-xs">
+              <div className="flex justify-between text-stone-600">
+                <span>Subtotal:</span>
+                <span className="font-mono font-bold text-stone-900">
+                  ₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="flex justify-between text-stone-600">
+                <span>Total Tax Amount:</span>
+                <span className="font-mono font-bold text-amber-900">
+                  + ₹{totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+              <div className="border-t border-amber-300/80 pt-1.5 flex justify-between items-baseline">
+                <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">Final Bill Total:</span>
+                <span className="text-2xl font-black text-amber-900 font-mono tracking-tight">
+                  ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
             </div>
 
             <button
@@ -1302,7 +1445,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
               type="button"
               disabled={submitting || items.length === 0}
               onClick={handleSavePurchaseBill}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed px-6 py-3.5 text-sm font-bold text-white shadow-md shadow-emerald-700/25 transition active:scale-95"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed px-6 py-3 text-sm font-bold text-white shadow-md shadow-emerald-700/25 transition active:scale-95"
             >
               {submitting ? (
                 <>
@@ -1374,6 +1517,19 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
             </div>
 
             <div className="mt-6 flex flex-col sm:flex-row items-center gap-2.5">
+              <button
+                type="button"
+                id="btn-print-saved-purchase-bill"
+                onClick={() => setViewingSavedBillPurchase(savedPurchase)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-stone-900 hover:bg-stone-800 px-4 py-2.5 text-xs font-bold text-white transition shadow-2xs"
+                title="View & Print Official Purchase Invoice"
+              >
+                <svg className="h-4 w-4 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                Print Purchase Bill
+              </button>
+
               <button
                 type="button"
                 id="btn-print-saved-purchase-barcodes"
@@ -1551,6 +1707,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
         categories={categories}
         defaultVendorId={selectedVendorId || null}
         defaultPurchaseDate={purchaseDate || null}
+        existingBarcodes={items.map((it) => it.barcode).filter(Boolean)}
       />
 
       {/* BARCODE PRINT MODAL INTEGRATION */}
@@ -1574,6 +1731,16 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           products={products}
         />
       )}
+
+      {/* VIEW & PRINT OFFICIAL PURCHASE BILL MODAL */}
+      <PurchaseBillModal
+        isOpen={Boolean(viewingSavedBillPurchase)}
+        onClose={() => setViewingSavedBillPurchase(null)}
+        purchase={viewingSavedBillPurchase}
+        session={session}
+        vendors={vendors}
+        onBatchPrintBarcodes={(p) => setBatchPrintingPurchase(p)}
+      />
     </div>
   );
 };

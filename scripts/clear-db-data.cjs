@@ -14,7 +14,11 @@ async function clearRetailPosDatabase(dbPath) {
 
   const normalizedUrl = `file:${dbPath.replace(/\\/g, '/')}`;
   const prisma = new PrismaClient({
-    datasourceUrl: normalizedUrl,
+    datasources: {
+      db: {
+        url: normalizedUrl,
+      },
+    },
   });
 
   try {
@@ -161,7 +165,11 @@ async function main() {
       if (fs.existsSync(pos2PrismaPkg)) {
         const { PrismaClient: Pos2Client } = require(pos2PrismaPkg);
         const p2 = new Pos2Client({
-          datasourceUrl: `file:${pos2Db.replace(/\\/g, '/')}`,
+          datasources: {
+            db: {
+              url: `file:${pos2Db.replace(/\\/g, '/')}`,
+            },
+          },
         });
         await p2.$connect();
         const bRes = await p2.buyer.deleteMany({});

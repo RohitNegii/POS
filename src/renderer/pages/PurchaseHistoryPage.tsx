@@ -13,6 +13,7 @@ import { useProducts } from '../hooks/useProducts';
 import { getLocalDateString } from '../../shared/utils/date';
 import { BarcodePrintModal } from '../components/BarcodePrintModal';
 import { BatchBarcodePrintModal } from '../components/BatchBarcodePrintModal';
+import { PurchaseBillModal } from '../components/PurchaseBillModal';
 
 interface PurchaseHistoryPageProps {
   session: AuthSessionPayload;
@@ -32,6 +33,8 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
     error,
     setFilter,
     updatePurchasePayment,
+    deletePurchase,
+    refreshPurchases,
     clearError,
   } = usePurchases();
 
@@ -55,6 +58,34 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
   const [editPaidAmount, setEditPaidAmount] = useState<string>('');
   const [editNotes, setEditNotes] = useState<string>('');
   const [updatingPayment, setUpdatingPayment] = useState<boolean>(false);
+
+  // Delete Purchase State
+  const [purchaseToDelete, setPurchaseToDelete] = useState<PurchaseDto | null>(null);
+  const [deletingPurchase, setDeletingPurchase] = useState<boolean>(false);
+
+  const handleConfirmDeletePurchase = async () => {
+    if (!purchaseToDelete) return;
+    setDeletingPurchase(true);
+    try {
+      const ok = await deletePurchase(purchaseToDelete.id);
+      if (ok) {
+        showSuccess(
+          `Purchase bill "${purchaseToDelete.invoiceNumber}" deleted successfully. Inward stock has been rolled back.`
+        );
+        setPurchaseToDelete(null);
+        if (billPurchase?.id === purchaseToDelete.id) {
+          setBillPurchase(null);
+        }
+        void refreshPurchases();
+      } else {
+        showError(error || 'Failed to delete purchase bill.');
+      }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to delete purchase bill.');
+    } finally {
+      setDeletingPurchase(false);
+    }
+  };
 
   const formatPaymentMethod = (method?: string | null): string => {
     if (!method) return 'Cash';
@@ -165,7 +196,11 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
           setBillPurchase(updated);
         }
         setEditingPurchase(null);
+      } else {
+        showError(error || 'Failed to update payment details.');
       }
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to update payment details.');
     } finally {
       setUpdatingPayment(false);
     }
@@ -582,6 +617,17 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                             </svg>
                             Edit Bill
                           </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setPurchaseToDelete(purchase)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-cream-300 bg-white hover:bg-rose-50 hover:border-rose-200 px-2 py-1 text-xs font-bold text-stone-400 hover:text-rose-600 shadow-xs transition"
+                            title="Delete purchase bill and roll back inventory stock"
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -594,464 +640,18 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
       </div>
 
       {/* VIEW COMPLETE PURCHASE BILL MODAL */}
-      {billPurchase && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="w-full max-w-4xl rounded-2xl border border-cream-300 bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-6">
-            {/* Printable Bill Area */}
-            <div id="printable-purchase-bill" className="space-y-6">
-              {/* Bill Header */}
-              <div className="border-b-2 border-stone-800 pb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200">
-                    Official Inward Purchase Bill
-                  </span>
-                  <h2 className="text-2xl font-black tracking-tight text-stone-900 mt-1">
-                    {session.companyName || 'STORE PURCHASE REGISTER'}
-                  </h2>
-                  <p className="text-xs text-stone-500">
-                    Stock Inventory Receipt & Inward Tax Register
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <div className="text-xs font-semibold text-stone-500">Internal Purchase ID</div>
-                  <div className="text-base font-mono font-bold text-amber-800">
-                    {billPurchase.purchaseNumber}
-                  </div>
-                  <div className="mt-1 text-xs text-stone-600">
-                    <strong>Vendor Invoice No: </strong>
-                    <span className="font-mono font-bold">{billPurchase.invoiceNumber}</span>
-                  </div>
-                  <div className="mt-0.5 text-xs text-stone-600">
-                    <strong>Date: </strong>{billPurchase.purchaseDate}
-                  </div>
-                </div>
-              </div>
-
-              {/* Vendor, Creditor & Transport Info Bar */}
-              {(() => {
-                const matchedVendor = vendors.find((v) => v.id === billPurchase.vendorId);
-                const creditorAddress = billPurchase.vendorAddress || matchedVendor?.address;
-                const creditorGst = billPurchase.vendorGstNumber || matchedVendor?.gstNumber;
-                const creditorPhone = billPurchase.vendorPhone || matchedVendor?.phoneNumber;
-                const bankName = matchedVendor?.bankName;
-                const accountNo = matchedVendor?.accountNumber;
-                const ifscCode = matchedVendor?.ifscCode;
-                const hasBank = bankName || accountNo || ifscCode;
-                const hasTransport = billPurchase.ewayBillNumber || billPurchase.transporterName || billPurchase.vehicleNumber;
-
-                return (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-xl border border-cream-300 bg-cream-50/70 p-4">
-                      {/* Creditor / Vendor Info */}
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
-                          Vendor / Creditor Details
-                        </span>
-                        <div className="text-base font-bold text-stone-900">
-                          {billPurchase.vendorName}
-                        </div>
-                        {creditorAddress && (
-                          <div className="text-xs text-stone-600 mt-1">
-                            <span className="text-stone-400 font-medium">Address: </span>
-                            {creditorAddress}
-                          </div>
-                        )}
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600 mt-1.5">
-                          {creditorPhone && (
-                            <div>
-                              <span className="text-stone-400 font-medium">Phone: </span>
-                              <strong>{creditorPhone}</strong>
-                            </div>
-                          )}
-                          {creditorGst && (
-                            <div>
-                              <span className="text-stone-400 font-medium">GSTIN: </span>
-                              <strong className="font-mono text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                {creditorGst}
-                              </strong>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Bank Details */}
-                        {hasBank && (
-                          <div className="mt-2.5 rounded-lg border border-cream-200 bg-white/80 p-2.5 text-xs">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block mb-1">
-                              Creditor Bank Account
-                            </span>
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-stone-800">
-                              {bankName && <span><strong>Bank:</strong> {bankName}</span>}
-                              {accountNo && <span><strong>A/C:</strong> {accountNo}</span>}
-                              {ifscCode && <span><strong>IFSC:</strong> {ifscCode}</span>}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Payment & Transport Status */}
-                      <div className="space-y-3">
-                        <div className="md:text-right">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block mb-1">
-                            Payment & Settlement
-                          </span>
-                          <div className="flex items-center gap-2 md:justify-end">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold border ${
-                                billPurchase.paymentStatus === 'PAID'
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                  : billPurchase.paymentStatus === 'PARTIAL'
-                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                  : 'bg-rose-50 text-rose-800 border-rose-300'
-                              }`}
-                            >
-                              {billPurchase.paymentStatus === 'UNPAID' ? 'No Payment' : billPurchase.paymentStatus} ({formatPaymentMethod(billPurchase.paymentMethod)})
-                            </span>
-                          </div>
-                          {(() => {
-                            const billPaymentDone =
-                              (billPurchase.paymentStatus === 'PAID' || billPurchase.paidAmount > 0) &&
-                              billPurchase.paymentMethod !== 'NO_PAYMENT';
-                            const effectiveBillPaymentDate =
-                              billPurchase.paymentDate || (billPaymentDone ? billPurchase.purchaseDate : null);
-
-                            return effectiveBillPaymentDate ? (
-                              <div className="text-[11px] text-stone-600 mt-1 md:text-right font-medium">
-                                Payment Date:{' '}
-                                <strong className="text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                                  {effectiveBillPaymentDate}
-                                </strong>
-                              </div>
-                            ) : (
-                              <div className="text-[11px] text-stone-400 mt-1 md:text-right italic">
-                                Payment Date: <span className="font-medium">— (No Payment)</span>
-                              </div>
-                            );
-                          })()}
-                          <div className="text-xs text-stone-600 mt-1">
-                            Paid: <strong>₹{billPurchase.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                            {' '}• Balance: <strong className={billPurchase.balanceAmount > 0 ? 'text-rose-700' : 'text-stone-700'}>₹{billPurchase.balanceAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                          </div>
-                        </div>
-
-                        {/* Transport / E-Way Box */}
-                        {hasTransport && (
-                          <div className="rounded-lg border border-cream-200 bg-white/80 p-2.5 text-xs">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block mb-1">
-                              E-Way Bill & Transport Details
-                            </span>
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-stone-700">
-                              {billPurchase.ewayBillNumber && (
-                                <div>
-                                  <span className="text-stone-400">E-Way Bill: </span>
-                                  <strong className="font-mono text-emerald-800">{billPurchase.ewayBillNumber}</strong>
-                                </div>
-                              )}
-                              {billPurchase.transporterName && (
-                                <div>
-                                  <span className="text-stone-400">Transporter: </span>
-                                  <strong className="text-stone-800">{billPurchase.transporterName}</strong>
-                                </div>
-                              )}
-                              {billPurchase.vehicleNumber && (
-                                <div>
-                                  <span className="text-stone-400">Vehicle No: </span>
-                                  <strong className="font-mono text-stone-800">{billPurchase.vehicleNumber}</strong>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Purchased Products Table */}
-              <div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-700 flex items-center gap-2">
-                    <span>Purchased Products & Line Items ({billPurchase.items.length})</span>
-                    <span className="text-[11px] text-stone-400 font-normal">
-                      • Total: {billPurchase.totalUnitsBought} units
-                    </span>
-                  </h4>
-
-                  <button
-                    type="button"
-                    id="btn-bill-print-all-barcodes"
-                    onClick={() => setBatchPrintingPurchase(billPurchase)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-900 transition shadow-2xs self-start sm:self-auto"
-                    title={`Print all barcodes for this bill (${billPurchase.totalUnitsBought} total stickers)`}
-                  >
-                    <svg className="h-3.5 w-3.5 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                    </svg>
-                    Print All Barcodes ({billPurchase.totalUnitsBought} stickers)
-                  </button>
-                </div>
-
-                <div className="overflow-x-auto rounded-xl border border-cream-300">
-                  <table className="w-full text-left text-xs min-w-[950px]">
-                    <thead className="border-b border-cream-200 bg-cream-100/80 font-bold text-stone-700 uppercase tracking-wider">
-                      <tr>
-                        <th className="px-3 py-2.5 text-center w-8">#</th>
-                        <th className="px-3 py-2.5 min-w-[180px]">Item Description</th>
-                        <th className="px-3 py-2.5 w-20">HSN</th>
-                        <th className="px-3 py-2.5 text-center w-16">Qty</th>
-                        <th className="px-3 py-2.5 text-right w-20">Rate (₹)</th>
-                        <th className="px-3 py-2.5 text-right w-16">Disc (₹)</th>
-                        <th className="px-3 py-2.5 text-right w-22">Total (₹)</th>
-                        <th className="px-3 py-2.5 text-right w-20">CGST</th>
-                        <th className="px-3 py-2.5 text-right w-20">SGST</th>
-                        <th className="px-3 py-2.5 text-right w-20">IGST</th>
-                        <th className="px-3 py-2.5 text-right w-24">Final Total (₹)</th>
-                        <th className="px-3 py-2.5 text-right w-18">Barcode</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-cream-200 bg-white">
-                      {billPurchase.items.map((item, idx) => {
-                        const taxable = item.taxableAmount !== undefined && item.taxableAmount !== null
-                          ? item.taxableAmount
-                          : Math.max(0, item.quantityBought * item.unitCost - (item.discount || 0));
-
-                        return (
-                          <tr key={item.id} className="hover:bg-cream-50/50">
-                            <td className="px-3 py-2.5 text-center text-stone-400 font-bold">
-                              {idx + 1}
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <div className="font-bold text-stone-900">{item.productName}</div>
-                              <div className="flex items-center gap-1.5 text-[10px] text-stone-400 mt-0.5">
-                                <span>{item.categoryName || 'General'}</span>
-                                <span className="font-mono text-amber-800 font-semibold">{item.barcode}</span>
-                              </div>
-                              {item.itemDescription && (
-                                <div className="text-[11px] text-stone-600 italic mt-0.5">{item.itemDescription}</div>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 font-mono text-stone-700">
-                              {item.hsnCode || '—'}
-                            </td>
-                            <td className="px-3 py-2.5 text-center font-bold text-stone-900">
-                              {item.quantityBought}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-stone-800">
-                              ₹{item.unitCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-stone-600">
-                              {item.discount && item.discount > 0
-                                ? `₹${item.discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-                                : '—'}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono font-semibold text-stone-900">
-                              ₹{taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-emerald-800">
-                              {item.cgstRate && item.cgstRate > 0 ? (
-                                <div>
-                                  <div className="text-[10px] text-stone-400">{item.cgstRate}%</div>
-                                  <div>₹{(item.cgstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-                                </div>
-                              ) : '—'}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-emerald-800">
-                              {item.sgstRate && item.sgstRate > 0 ? (
-                                <div>
-                                  <div className="text-[10px] text-stone-400">{item.sgstRate}%</div>
-                                  <div>₹{(item.sgstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-                                </div>
-                              ) : '—'}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-blue-800">
-                              {item.igstRate && item.igstRate > 0 ? (
-                                <div>
-                                  <div className="text-[10px] text-stone-400">{item.igstRate}%</div>
-                                  <div>₹{(item.igstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-                                </div>
-                              ) : '—'}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono font-bold text-amber-900">
-                              ₹{item.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-3 py-2.5 text-right">
-                              <button
-                                type="button"
-                                onClick={() => handlePrintItemBarcode(item.productId, item.barcode, item.quantityBought)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-900 transition"
-                              >
-                                Print
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Bill Totals Summary */}
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pt-2">
-                <div className="text-xs text-stone-500 max-w-sm">
-                  {billPurchase.notes && (
-                    <div className="rounded-xl border border-cream-300 bg-cream-50 p-3">
-                      <strong className="text-stone-800 block mb-0.5">Bill Remarks / Notes:</strong>
-                      {billPurchase.notes}
-                    </div>
-                  )}
-                </div>
-
-                {(() => {
-                  const billCgstTotal = Math.round(billPurchase.items.reduce((acc, it) => acc + (it.cgstAmount || 0), 0) * 100) / 100;
-                  const billSgstTotal = Math.round(billPurchase.items.reduce((acc, it) => acc + (it.sgstAmount || 0), 0) * 100) / 100;
-                  const billIgstTotal = Math.round(billPurchase.items.reduce((acc, it) => acc + (it.igstAmount || 0), 0) * 100) / 100;
-                  const billTaxableTotal = Math.round(
-                    billPurchase.items.reduce(
-                      (acc, it) =>
-                        acc +
-                        (it.taxableAmount !== undefined && it.taxableAmount !== null
-                          ? it.taxableAmount
-                          : Math.max(0, it.quantityBought * it.unitCost - (it.discount || 0))),
-                      0
-                    ) * 100
-                  ) / 100;
-                  const totalGst = Math.round((billCgstTotal + billSgstTotal + billIgstTotal) * 100) / 100;
-
-                  return (
-                    <div className="w-full sm:w-80 space-y-1.5 rounded-xl border border-cream-300 bg-cream-50/70 p-4 text-xs">
-                      <div className="flex justify-between text-stone-600">
-                        <span>Taxable Amount (Total):</span>
-                        <span className="font-bold text-stone-900 font-mono">
-                          ₹{billTaxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      {billCgstTotal > 0 && (
-                        <div className="flex justify-between text-emerald-800">
-                          <span>CGST Total:</span>
-                          <span className="font-bold font-mono">
-                            ₹{billCgstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
-                      {billSgstTotal > 0 && (
-                        <div className="flex justify-between text-emerald-800">
-                          <span>SGST Total:</span>
-                          <span className="font-bold font-mono">
-                            ₹{billSgstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
-                      {billIgstTotal > 0 && (
-                        <div className="flex justify-between text-blue-800">
-                          <span>IGST Total:</span>
-                          <span className="font-bold font-mono">
-                            ₹{billIgstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
-                      {totalGst > 0 && (
-                        <div className="flex justify-between text-stone-600 font-semibold border-t border-cream-200 pt-1">
-                          <span>Total GST Tax:</span>
-                          <span className="font-mono">
-                            ₹{totalGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
-                      <div className="border-t border-cream-300 pt-2 flex justify-between text-sm font-black text-stone-900">
-                        <span>Final Bill Total:</span>
-                        <span className="text-amber-700 font-mono">
-                          ₹{billPurchase.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-stone-600 pt-1">
-                        <span>Amount Paid:</span>
-                        <span className="font-bold text-emerald-700 font-mono">
-                          ₹{billPurchase.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-stone-600">
-                        <span>Outstanding Balance:</span>
-                        <span className={`font-bold font-mono ${billPurchase.balanceAmount > 0 ? 'text-rose-700' : 'text-stone-700'}`}>
-                          ₹{billPurchase.balanceAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-
-            {/* Bill Modal Actions */}
-            <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-cream-200 pt-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onEditPurchase && billPurchase) {
-                      const pid = billPurchase.id;
-                      setBillPurchase(null);
-                      onEditPurchase(pid);
-                    } else if (billPurchase) {
-                      handleOpenEditPayment(billPurchase);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 px-3.5 py-2 text-xs font-bold text-white shadow-xs transition"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  Edit Complete Bill
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleOpenEditPayment(billPurchase)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-cream-300 bg-white hover:bg-cream-100 px-3 py-2 text-xs font-semibold text-stone-600 transition"
-                  title="Quickly update payment status without modifying products"
-                >
-                  Update Payment Status
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  id="btn-bill-footer-print-barcodes"
-                  onClick={() => setBatchPrintingPurchase(billPurchase)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 px-3.5 py-2 text-xs font-bold text-amber-900 shadow-xs transition"
-                  title="Print barcode labels for all products in this bill"
-                >
-                  <svg className="h-4 w-4 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                  </svg>
-                  Print Entry Barcodes
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                  </svg>
-                  Print Bill
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setBillPurchase(null)}
-                  className="rounded-xl border border-cream-300 bg-white hover:bg-cream-100 px-4 py-2 text-xs font-semibold text-stone-700 transition"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <PurchaseBillModal
+        isOpen={Boolean(billPurchase)}
+        onClose={() => setBillPurchase(null)}
+        purchase={billPurchase}
+        session={session}
+        vendors={vendors}
+        onEditPurchase={onEditPurchase}
+        onOpenEditPayment={handleOpenEditPayment}
+        onDeletePurchase={(p) => setPurchaseToDelete(p)}
+        onBatchPrintBarcodes={(p) => setBatchPrintingPurchase(p)}
+        onPrintItemBarcode={handlePrintItemBarcode}
+      />
 
       {/* EDIT PAYMENT MODAL */}
       {editingPurchase && (
@@ -1208,6 +808,65 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
           session={session}
           products={products}
         />
+      )}
+
+      {/* DELETE PURCHASE BILL CONFIRMATION MODAL */}
+      {purchaseToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl border border-cream-300 bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100 text-rose-600 border border-rose-200 shrink-0">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-stone-900">
+                  Delete Purchase Bill?
+                </h3>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Are you sure you want to delete invoice{' '}
+                  <strong className="text-stone-800 font-mono">{purchaseToDelete.invoiceNumber}</strong> (
+                  {purchaseToDelete.purchaseNumber})?
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-rose-100 bg-rose-50/60 p-3.5 text-xs text-rose-800 space-y-1.5">
+              <p className="font-semibold text-rose-900">Inventory Stock & Catalog Effect:</p>
+              <ul className="list-disc list-inside space-y-1 text-[11px] text-rose-700">
+                <li>
+                  Inward stock for <strong>{purchaseToDelete.totalProductsCount} products</strong> ({purchaseToDelete.totalUnitsBought} units) will be automatically rolled back.
+                </li>
+                <li>
+                  Any products created solely for this purchase bill (with no other bills or sales) will be cleaned up from your product catalog and barcode list.
+                </li>
+              </ul>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={deletingPurchase}
+                onClick={() => setPurchaseToDelete(null)}
+                className="rounded-xl border border-cream-300 bg-white hover:bg-cream-100 px-4 py-2 text-xs font-semibold text-stone-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingPurchase}
+                onClick={handleConfirmDeletePurchase}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 px-4 py-2 text-xs font-bold text-white shadow-xs transition disabled:opacity-50"
+              >
+                {deletingPurchase && (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                )}
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -313,7 +313,7 @@ export interface PosDesktopApi {
   getMetalRateHistory: () => Promise<IpcResult<MetalRateHistoryItemDto[]>>;
   calculateJewelleryPrice: (input: JewelleryCalculationInput) => Promise<IpcResult<JewelleryPriceCalculationResult>>;
   printBarcode: (input: string | { html: string; widthMm: number; heightMm: number }) => Promise<IpcResult<{ printed: boolean }>>;
-  generateBarcode: (input: { productName: string; categoryName: string }) => Promise<IpcResult<string>>;
+  generateBarcode: (input: { productName: string; categoryName: string; existingBarcodes?: string[] }) => Promise<IpcResult<string>>;
   scanBillingProduct: (barcode: string) => Promise<IpcResult<ScannedProductDto>>;
   searchBillingProducts: (query?: string) => Promise<IpcResult<ScannedProductDto[]>>;
   createBill: (input: CreateBillRequest) => Promise<IpcResult<BillDto>>;
@@ -515,6 +515,12 @@ export interface PurchaseDto {
   vehicleNumber?: string | null;
   paymentDate?: string | null; // 'YYYY-MM-DD'
   subtotal: number;
+  cgstRate?: number;
+  cgstAmount?: number;
+  sgstRate?: number;
+  sgstAmount?: number;
+  igstRate?: number;
+  igstAmount?: number;
   taxAmount: number;
   totalAmount: number;
   paidAmount: number;
@@ -564,6 +570,12 @@ export interface CreatePurchaseRequest {
   paymentMethod: PurchasePaymentMethod;
   paymentStatus?: PurchasePaymentStatus;
   amountPaid?: number;
+  cgstRate?: number;
+  cgstAmount?: number;
+  sgstRate?: number;
+  sgstAmount?: number;
+  igstRate?: number;
+  igstAmount?: number;
   notes?: string;
   items: CreatePurchaseItemInput[];
   // Legacy optional single-item fields for fallback
@@ -584,6 +596,12 @@ export interface UpdatePurchaseRequest {
   paymentMethod: PurchasePaymentMethod;
   paymentStatus?: PurchasePaymentStatus;
   amountPaid?: number;
+  cgstRate?: number;
+  cgstAmount?: number;
+  sgstRate?: number;
+  sgstAmount?: number;
+  igstRate?: number;
+  igstAmount?: number;
   notes?: string;
   items: CreatePurchaseItemInput[];
 }

@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import type { AuthSessionPayload, BillDto } from '../../shared/types/ipc';
 import { useToast } from '../context/ToastContext';
 import { ipcClient } from '../services/ipcClient';
+import { SalesReceiptModal } from '../components/SalesReceiptModal';
 
 interface BillsHistoryPageProps {
   session: AuthSessionPayload;
   onNavigateToBilling?: () => void;
 }
 
-export const BillsHistoryPage: React.FC<BillsHistoryPageProps> = ({ session: _session, onNavigateToBilling }) => {
+export const BillsHistoryPage: React.FC<BillsHistoryPageProps> = ({ session, onNavigateToBilling }) => {
   const { showError } = useToast();
   const [bills, setBills] = useState<BillDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,10 +39,6 @@ export const BillsHistoryPage: React.FC<BillsHistoryPageProps> = ({ session: _se
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     void fetchBills(search);
-  };
-
-  const handlePrint = () => {
-    window.print();
   };
 
   return (
@@ -227,137 +224,12 @@ export const BillsHistoryPage: React.FC<BillsHistoryPageProps> = ({ session: _se
       </div>
 
       {/* Bill Receipt Modal */}
-      {selectedBill && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/50 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-cream-300 bg-white p-6 shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between pb-3 border-b border-cream-200 print:hidden">
-              <span className="text-xs font-bold text-stone-700">Receipt Details</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrint}
-                  className="rounded-xl border border-cream-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-cream-100 shadow-2xs transition flex items-center gap-1"
-                >
-                  <svg className="h-4 w-4 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                  </svg>
-                  <span>Print Receipt</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedBill(null)}
-                  className="rounded-xl border border-cream-300 bg-white px-3.5 py-1.5 text-xs font-bold text-stone-700 hover:bg-cream-100 shadow-2xs transition"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            {/* Printable Receipt Body */}
-            <div id="printable-receipt" className="overflow-y-auto p-4 space-y-4 font-mono text-xs text-stone-850">
-              <div className="text-center border-b border-dashed border-stone-300 pb-3">
-                <h2 className="text-lg font-black tracking-tight font-sans text-stone-900">
-                  RETAIL STORE POS
-                </h2>
-                <p className="text-[11px] text-stone-500 font-sans">
-                  Unified Multi-Company Retail Counter
-                </p>
-                <div className="mt-2 text-[10px] text-stone-600">
-                  <span>Invoice #: </span>
-                  <span className="font-bold text-stone-900">{selectedBill.invoiceNumber}</span>
-                </div>
-                <div className="text-[10px] text-stone-500">
-                  {new Date(selectedBill.createdAt).toLocaleString()} • Cashier: {selectedBill.billingUserName}
-                </div>
-              </div>
-
-              {(selectedBill.customerName || selectedBill.customerPhone) && (
-                <div className="text-[11px] border-b border-dashed border-stone-300 pb-2 font-sans">
-                  {selectedBill.customerName && (
-                    <div><span className="text-stone-500">Customer:</span> <span className="font-bold">{selectedBill.customerName}</span></div>
-                  )}
-                  {selectedBill.customerPhone && (
-                    <div><span className="text-stone-500">Phone:</span> {selectedBill.customerPhone}</div>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <div className="flex justify-between font-bold text-[10px] uppercase border-b border-stone-200 pb-1 text-stone-600">
-                  <span>Item / Company</span>
-                  <span>Qty x Rate</span>
-                  <span>Amount</span>
-                </div>
-
-                {selectedBill.items.map((it) => (
-                  <div key={it.id} className="border-b border-stone-100 pb-1.5">
-                    <div className="flex justify-between font-bold text-stone-900">
-                      <span>{it.productName}</span>
-                      <span>₹{it.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-stone-500">
-                      <span>
-                        [{it.companyName}] {it.barcode}
-                        {it.discountPercentage && it.discountPercentage > 0 ? (
-                          <span className="text-emerald-700 font-bold ml-1">
-                            (Orig: ₹{it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} -{it.discountPercentage}%)
-                          </span>
-                        ) : null}
-                      </span>
-                      <span>
-                        {it.quantity} x ₹{(it.netUnitPrice ?? it.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {selectedBill.companyBreakdowns && selectedBill.companyBreakdowns.length > 0 && (
-                <div className="rounded-lg bg-stone-50 p-2.5 space-y-1 text-[11px] font-sans border border-stone-200">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-stone-500">
-                    Company Breakdown:
-                  </div>
-                  {selectedBill.companyBreakdowns.map((cb) => (
-                    <div key={cb.companyId} className="flex justify-between text-stone-700">
-                      <span>• {cb.companyName} ({cb.itemCount} items):</span>
-                      <span className="font-semibold">₹{cb.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="border-t border-dashed border-stone-300 pt-2 space-y-1 text-xs">
-                <div className="flex justify-between text-stone-600">
-                  <span>Gross Subtotal:</span>
-                  <span>₹{selectedBill.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </div>
-                {selectedBill.discount > 0 && (
-                  <div className="flex justify-between text-emerald-700 font-semibold">
-                    <span>
-                      Discount {selectedBill.discountPercentage ? `(${selectedBill.discountPercentage}%)` : ''}:
-                    </span>
-                    <span>-₹{selectedBill.discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                )}
-                {selectedBill.tax > 0 && (
-                  <div className="flex justify-between text-stone-600">
-                    <span>Tax / GST:</span>
-                    <span>+₹{selectedBill.tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t-2 border-stone-900 pt-1 text-base font-black text-stone-900">
-                  <span>Grand Total:</span>
-                  <span>₹{selectedBill.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </div>
-                <div className="flex justify-between text-[11px] text-stone-600 pt-1">
-                  <span>Payment Mode:</span>
-                  <span className="font-bold">{selectedBill.paymentMethod} (PAID)</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <SalesReceiptModal
+        isOpen={Boolean(selectedBill)}
+        onClose={() => setSelectedBill(null)}
+        bill={selectedBill}
+        session={session}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../database/prisma';
 import { authService } from './authService';
 import { metalRateService } from './metalRateService';
@@ -50,9 +50,11 @@ export class ProductService {
   public async generatePermanentBarcode(
     productName: string,
     categoryName: string,
-    companyIdentifier?: string
+    companyIdentifier?: string,
+    dbClient?: Prisma.TransactionClient | PrismaClient,
+    excludeBarcodes?: string[]
   ): Promise<string> {
-    const prisma = getPrismaClient();
+    const prisma = dbClient || getPrismaClient();
 
     // 1. First letter: Company A or B
     let companyLetter = 'A';
@@ -91,8 +93,6 @@ export class ProductService {
         },
       },
       select: { barcode: true },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
     });
 
     let highestNum = 0;
@@ -107,19 +107,38 @@ export class ProductService {
       }
     }
 
+    if (excludeBarcodes && Array.isArray(excludeBarcodes)) {
+      for (const b of excludeBarcodes) {
+        if (!b) continue;
+        const match = b.match(prefixRegex);
+        if (match && match[1]) {
+          const parsed = parseInt(match[1], 10);
+          if (!isNaN(parsed) && parsed > highestNum) {
+            highestNum = parsed;
+          }
+        }
+      }
+    }
+
+    const excludedSet = new Set(
+      (excludeBarcodes || []).filter((b): b is string => Boolean(b && b.trim()))
+    );
+
     let nextNum = highestNum + 1;
     let candidateBarcode = `${prefix}${String(nextNum).padStart(6, '0')}`;
 
     // 6. Collision check and retry loop
     let attempts = 0;
-    while (attempts < 100) {
-      const collision = await prisma.product.findUnique({
-        where: { barcode: candidateBarcode },
-        select: { id: true },
-      });
+    while (attempts < 1000) {
+      if (!excludedSet.has(candidateBarcode)) {
+        const collision = await prisma.product.findUnique({
+          where: { barcode: candidateBarcode },
+          select: { id: true },
+        });
 
-      if (!collision) {
-        return candidateBarcode;
+        if (!collision) {
+          return candidateBarcode;
+        }
       }
 
       nextNum++;
@@ -904,7 +923,18 @@ export class ProductService {
       ? Math.max(0, stockQuantityOverride)
       : (typeof input.stockQuantity === 'number' && !isNaN(input.stockQuantity) ? Math.max(0, input.stockQuantity) : 0);
 
-    const barcode = input.barcode?.trim() || (await this.generatePermanentBarcode(name, category.name));
+    let barcode = input.barcode?.trim();
+    if (barcode) {
+      const existing = await tx.product.findUnique({
+        where: { barcode },
+        select: { id: true },
+      });
+      if (existing) {
+        barcode = await this.generatePermanentBarcode(name, category.name, undefined, tx);
+      }
+    } else {
+      barcode = await this.generatePermanentBarcode(name, category.name, undefined, tx);
+    }
 
     if (
       purchasePriceVal !== null ||
