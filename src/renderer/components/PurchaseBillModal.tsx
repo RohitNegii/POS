@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import type { AuthSessionPayload, PurchaseDto, VendorDto } from '../../shared/types/ipc';
 
 export interface PurchaseBillModalProps {
@@ -47,10 +48,16 @@ export const PurchaseBillModal: React.FC<PurchaseBillModalProps> = ({
 
   const handlePrint = () => {
     document.body.classList.add('printing-purchase-bill');
-    window.print();
-    setTimeout(() => {
+
+    const cleanup = () => {
       document.body.classList.remove('printing-purchase-bill');
-    }, 1000);
+      window.removeEventListener('afterprint', cleanup);
+    };
+
+    window.addEventListener('afterprint', cleanup);
+    setTimeout(cleanup, 60000);
+
+    window.print();
   };
 
   const matchedVendor = vendors.find((v) => v.id === purchase.vendorId);
@@ -116,8 +123,11 @@ export const PurchaseBillModal: React.FC<PurchaseBillModalProps> = ({
     purchase.items.reduce((acc, it) => acc + (it.discount || 0), 0) * 100
   ) / 100;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-stone-900/60 p-2 sm:p-4 md:p-6 overflow-hidden print:p-0 print:static print:bg-white print:overflow-visible">
+  return createPortal(
+    <div
+      data-printable-modal="purchase-bill"
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-stone-900/60 p-2 sm:p-4 md:p-6 overflow-hidden print:p-0 print:static print:bg-white print:overflow-visible"
+    >
       <div className="w-full max-w-5xl rounded-2xl border border-cream-300 bg-white shadow-2xl flex flex-col max-h-[96vh] sm:max-h-[92vh] print:max-h-none print:border-none print:shadow-none print:m-0 print:overflow-visible">
         {/* Modal Top Bar (Screen Only) */}
         <div className="flex items-center justify-between border-b border-cream-200/90 bg-cream-50/80 px-5 py-3 rounded-t-2xl shrink-0 print:hidden">
@@ -593,6 +603,7 @@ export const PurchaseBillModal: React.FC<PurchaseBillModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

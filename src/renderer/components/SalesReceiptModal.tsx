@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AuthSessionPayload, BillDto } from '../../shared/types/ipc';
 
 export interface SalesReceiptModalProps {
@@ -68,7 +69,7 @@ export const SalesReceiptModal: React.FC<SalesReceiptModalProps> = ({
   if (!isOpen || !bill) return null;
 
   const handlePrint = () => {
-    document.body.classList.add('printing-receipt');
+    document.body.classList.add('printing-bill');
     if (printLayout === 'thermal') {
       document.body.classList.add('print-layout-thermal');
       document.body.classList.remove('print-layout-a4');
@@ -77,13 +78,17 @@ export const SalesReceiptModal: React.FC<SalesReceiptModalProps> = ({
       document.body.classList.remove('print-layout-thermal');
     }
 
-    window.print();
-
-    setTimeout(() => {
-      document.body.classList.remove('printing-receipt');
+    const cleanup = () => {
+      document.body.classList.remove('printing-bill');
       document.body.classList.remove('print-layout-thermal');
       document.body.classList.remove('print-layout-a4');
-    }, 1000);
+      window.removeEventListener('afterprint', cleanup);
+    };
+
+    window.addEventListener('afterprint', cleanup);
+    setTimeout(cleanup, 60000);
+
+    window.print();
   };
 
   const totalQuantity = bill.items.reduce((acc, it) => acc + (it.quantity || 1), 0);
@@ -99,8 +104,11 @@ export const SalesReceiptModal: React.FC<SalesReceiptModalProps> = ({
     hour12: true,
   });
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:p-0 print:static print:bg-white print:overflow-visible">
+  return createPortal(
+    <div
+      data-printable-modal="sales-receipt"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:p-0 print:static print:bg-white print:overflow-visible"
+    >
       <div
         className={`w-full ${
           printLayout === 'thermal' ? 'max-w-md' : 'max-w-4xl'
@@ -192,6 +200,7 @@ export const SalesReceiptModal: React.FC<SalesReceiptModalProps> = ({
           {/* Printable Receipt Container */}
           <div
             id="printable-receipt"
+            data-layout={printLayout}
             className={`${
               printLayout === 'thermal'
                 ? 'w-full max-w-[80mm] font-mono text-[11px] p-3 border border-stone-300 bg-white shadow-sm'
@@ -642,6 +651,7 @@ export const SalesReceiptModal: React.FC<SalesReceiptModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
