@@ -43,6 +43,13 @@ const FIXED_ADMINS = [
     passwordPlain: 'Billing@123',
     role: 'BILLING_USER',
   },
+  {
+    companyCode: 'COMPANY_A',
+    name: 'Super Admin',
+    email: 'superadmin@example.com',
+    passwordPlain: 'SuperAdmin@123',
+    role: 'SUPER_ADMIN',
+  },
 ];
 
 /**
@@ -280,11 +287,18 @@ async function seed(prismaClient) {
       const dbPath = path.join(appData, 'pos-retail-desktop', 'app-data', 'pos-system.sqlite');
       datasourceUrl = `file:${dbPath.replace(/\\/g, '/')}`;
       console.log(`[SEED] Targeting Electron userData database: ${datasourceUrl}`);
+    } else {
+      const dbPath = path.join(__dirname, '..', 'prisma', 'dev.db');
+      datasourceUrl = `file:${dbPath.replace(/\\/g, '/')}`;
     }
 
-    prisma = new PrismaClient(
-      datasourceUrl ? { datasourceUrl } : undefined
-    );
+    prisma = new PrismaClient({
+      datasources: {
+        db: {
+          url: datasourceUrl,
+        },
+      },
+    });
     shouldDisconnect = true;
   }
 
@@ -663,6 +677,48 @@ async function seed(prismaClient) {
           },
         });
       }
+    }
+
+    // Seed default billing users if none exist
+    try {
+      const billingUserCount = await prisma.billingUser.count();
+      if (billingUserCount === 0) {
+        const defaultUsers = ['Billing Cashier', 'Counter Staff 1'];
+        for (const name of defaultUsers) {
+          await prisma.billingUser.create({
+            data: { name },
+          });
+        }
+      }
+    } catch (e) {
+      // Ignore if table not yet migrated
+    }
+
+    // Seed default expense categories if none exist
+    try {
+      const DEFAULT_EXPENSE_CATEGORIES = [
+        { name: 'Salary', description: 'Employee wages, salaries, and compensation', isDefault: true },
+        { name: 'Conveyance', description: 'Travel, petrol, local transportation expenses', isDefault: true },
+        { name: 'Electricity', description: 'Showroom electricity bills and power backup', isDefault: true },
+        { name: 'Maintenance', description: 'Shop repairs, renovation, and equipment maintenance', isDefault: true },
+        { name: 'Rent', description: 'Store/showroom lease and premises rent', isDefault: true },
+        { name: 'Internet', description: 'Broadband, telephone, and networking charges', isDefault: true },
+        { name: 'Office Expenses', description: 'Stationery, refreshments, cleaning, and daily supplies', isDefault: true },
+        { name: 'Other Expenses', description: 'Miscellaneous operational expenses', isDefault: true },
+      ];
+
+      for (const cat of DEFAULT_EXPENSE_CATEGORIES) {
+        const existing = await prisma.expenseCategory.findUnique({
+          where: { name: cat.name },
+        });
+        if (!existing) {
+          await prisma.expenseCategory.create({
+            data: cat,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Expense categories seed warning:', e.message);
     }
 
     console.log(`\n==================================================`);

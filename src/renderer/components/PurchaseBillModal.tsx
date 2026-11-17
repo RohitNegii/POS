@@ -11,6 +11,7 @@ export interface PurchaseBillModalProps {
   onEditPurchase?: (purchaseId: string) => void;
   onOpenEditPayment?: (purchase: PurchaseDto) => void;
   onDeletePurchase?: (purchase: PurchaseDto) => void;
+  onReturnToVendor?: (purchase: PurchaseDto) => void;
   onBatchPrintBarcodes?: (purchase: PurchaseDto) => void;
   onPrintItemBarcode?: (productId: string | null, barcode: string, qty: number) => void;
 }
@@ -41,6 +42,7 @@ export const PurchaseBillModal: React.FC<PurchaseBillModalProps> = ({
   onEditPurchase,
   onOpenEditPayment,
   onDeletePurchase,
+  onReturnToVendor,
   onBatchPrintBarcodes,
   onPrintItemBarcode,
 }) => {
@@ -294,6 +296,12 @@ export const PurchaseBillModal: React.FC<PurchaseBillModalProps> = ({
                     </span>
                   )}
                 </div>
+                {purchase.utr && (
+                  <div className="text-stone-700">
+                    <span className="text-stone-500 text-[11px]">UTR / Ref: </span>
+                    <strong className="font-mono text-stone-900 uppercase">{purchase.utr}</strong>
+                  </div>
+                )}
                 {hasTransport && (
                   <div className="text-[11px] font-mono text-stone-700 border-t border-stone-200/80 pt-1 space-y-0.5">
                     <span className="font-sans text-[10px] text-stone-400 block">Transport / Logistics:</span>
@@ -414,12 +422,12 @@ export const PurchaseBillModal: React.FC<PurchaseBillModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1 items-start">
               {/* Left Column: Notes, Terms, and Declarations */}
               <div className="space-y-3">
-                {purchase.notes && (
+                {(purchase.description || purchase.notes) && (
                   <div className="rounded-xl border border-stone-300 bg-stone-50 p-3 text-xs print:bg-white print:border-stone-400">
                     <strong className="text-stone-800 block text-[11px] uppercase tracking-wider mb-0.5">
-                      Bill Remarks / Notes:
+                      Bill Description & Remarks:
                     </strong>
-                    <p className="text-stone-700 leading-relaxed">{purchase.notes}</p>
+                    <p className="text-stone-700 leading-relaxed">{purchase.description || purchase.notes}</p>
                   </div>
                 )}
 
@@ -538,6 +546,20 @@ export const PurchaseBillModal: React.FC<PurchaseBillModalProps> = ({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
                 Edit Complete Bill
+              </button>
+            )}
+
+            {onReturnToVendor && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onReturnToVendor(purchase);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 px-3.5 py-2 text-xs font-bold text-rose-900 shadow-2xs transition"
+                title="Return purchased items back to vendor and deduct stock"
+              >
+                <span>↩️ Return to Vendor</span>
               </button>
             )}
 

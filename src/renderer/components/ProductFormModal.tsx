@@ -1330,24 +1330,51 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 </div>
 
                 <div>
-                  <label htmlFor="product-stock-input" className="block text-xs font-medium text-stone-700">
-                    Stock Quantity / Inward Units <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    id="product-stock-input"
-                    type="number"
-                    step="any"
-                    min="0"
-                    required
-                    value={stockQuantity}
-                    onChange={(e) => setStockQuantity(e.target.value)}
-                    placeholder="e.g. 10 or 50.5"
-                    disabled={saving}
-                    className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600 font-mono"
-                  />
-                  <p className="mt-1 text-[10px] text-stone-500">
-                    Units inwarded into store inventory
-                  </p>
+                  {(() => {
+                    const isMeterCat =
+                      categoryFields.some(
+                        (f) => f.fieldKey === 'sellingPricePerMeter' || f.fieldKey === 'ratePerMeter'
+                      ) ||
+                      /meter|fabric|linear/i.test(
+                        categories.find((c) => c.id === selectedCategoryId)?.name || ''
+                      );
+
+                    return (
+                      <>
+                        <label
+                          htmlFor="product-stock-input"
+                          className="text-xs font-bold text-stone-700 flex items-center justify-between"
+                        >
+                          <span>
+                            {isMeterCat ? 'Total Stock Length (Meters)' : 'Stock Quantity / Units'}{' '}
+                            <span className="text-rose-500">*</span>
+                          </span>
+                          {isMeterCat && (
+                            <span className="text-[10px] text-cyan-800 bg-cyan-50 border border-cyan-200 rounded px-1.5 py-0.2 font-semibold">
+                              📏 Linear Meters
+                            </span>
+                          )}
+                        </label>
+                        <input
+                          id="product-stock-input"
+                          type="number"
+                          step="any"
+                          min="0"
+                          required
+                          value={stockQuantity}
+                          onChange={(e) => setStockQuantity(e.target.value)}
+                          placeholder={isMeterCat ? 'e.g. 50.00 or 100 meters' : 'e.g. 10 or 50'}
+                          disabled={saving}
+                          className="mt-1.5 w-full rounded-lg border border-cream-300 bg-white px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:outline-hidden focus:ring-1 focus:ring-amber-600 font-mono"
+                        />
+                        <p className="mt-1 text-[10px] text-stone-500">
+                          {isMeterCat
+                            ? 'Enter physical roll / fabric length in linear meters'
+                            : 'Units inwarded into store inventory'}
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 

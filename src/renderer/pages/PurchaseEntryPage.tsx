@@ -25,6 +25,7 @@ interface PurchaseEntryPageProps {
   onNavigateToHistory: () => void;
   editingPurchaseId?: string | null;
   onCancelEdit?: () => void;
+  onPurchaseSaved?: () => void;
 }
 
 export interface BillProductItem {
@@ -59,6 +60,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
   onNavigateToHistory,
   editingPurchaseId,
   onCancelEdit,
+  onPurchaseSaved,
 }) => {
   const { showError, showSuccess } = useToast();
   const {
@@ -121,6 +123,8 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
     getLocalDateString()
   );
   const [paymentMethod, setPaymentMethod] = useState<PurchasePaymentMethod>('CASH');
+  const [utr, setUtr] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
 
   // E-way bill & Transport Details State
   const [ewayBillNumber, setEwayBillNumber] = useState<string>('');
@@ -203,6 +207,8 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
             ? 'NO_PAYMENT'
             : 'CASH'
         );
+        setUtr(p.utr || '');
+        setDescription(p.description || p.notes || '');
 
         // Load bill-level GST rates
         if (p.cgstRate !== undefined && p.cgstRate !== null && p.cgstRate > 0) {
@@ -627,6 +633,11 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
       return;
     }
 
+    if (paymentMethod === 'ONLINE' && !utr.trim()) {
+      showError('UTR / Transaction Reference number is required when payment method is Online.');
+      return;
+    }
+
     if (items.length === 0) {
       showError('Please add at least one product to the purchase bill.');
       return;
@@ -683,6 +694,8 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           paymentMethod,
           paymentStatus: status,
           amountPaid: paid,
+          utr: paymentMethod === 'ONLINE' ? utr.trim() : undefined,
+          description: description.trim() || undefined,
           cgstRate: numCgstRate,
           cgstAmount: totalCgst,
           sgstRate: numSgstRate,
@@ -698,6 +711,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           );
           setSavedPurchase(res);
           void refreshProducts();
+          onPurchaseSaved?.();
         } else {
           showError(purchaseError || 'Failed to update purchase bill. Please verify the entered data.');
         }
@@ -713,6 +727,8 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           paymentMethod,
           paymentStatus: status,
           amountPaid: paid,
+          utr: paymentMethod === 'ONLINE' ? utr.trim() : undefined,
+          description: description.trim() || undefined,
           cgstRate: numCgstRate,
           cgstAmount: totalCgst,
           sgstRate: numSgstRate,
@@ -728,6 +744,7 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
           );
           setSavedPurchase(res);
           void refreshProducts();
+          onPurchaseSaved?.();
         } else {
           showError(purchaseError || 'Failed to save purchase bill. Please verify the entered data.');
         }
@@ -743,6 +760,8 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
     setSavedPurchase(null);
     setItems([]);
     setInvoiceNumber('');
+    setUtr('');
+    setDescription('');
     setBillCgstRate('0');
     setBillSgstRate('0');
     setBillIgstRate('0');
@@ -937,7 +956,11 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
               id="purchase-payment-method-select"
               value={paymentMethod}
               onChange={(e) => {
-                setPaymentMethod(e.target.value as PurchasePaymentMethod);
+                const newMethod = e.target.value as PurchasePaymentMethod;
+                setPaymentMethod(newMethod);
+                if (newMethod !== 'ONLINE') {
+                  setUtr('');
+                }
               }}
               className="w-full rounded-xl border border-cream-300 bg-cream-50/40 px-3 py-2 text-xs font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20 transition"
             >
@@ -945,6 +968,40 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
               <option value="ONLINE">Online / Bank Transfer</option>
               <option value="NO_PAYMENT">No Payment (Credit)</option>
             </select>
+          </div>
+        </div>
+
+        {/* Row 2: UTR (if Online - Required) & Optional Description */}
+        <div className={`mt-3.5 grid grid-cols-1 gap-4 ${paymentMethod === 'ONLINE' ? 'sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1'}`}>
+          {paymentMethod === 'ONLINE' && (
+            <div className="lg:col-span-1 animate-in fade-in duration-150">
+              <label htmlFor="purchase-utr-input" className="block text-xs font-bold text-stone-700 mb-1.5">
+                UTR / Transaction Ref <span className="text-red-500 font-bold">*</span>
+              </label>
+              <input
+                id="purchase-utr-input"
+                type="text"
+                required
+                value={utr}
+                onChange={(e) => setUtr(e.target.value)}
+                placeholder="e.g. UTR / IMPS / UPI Ref"
+                className="w-full rounded-xl border border-amber-300 bg-amber-50/40 px-3.5 py-2 text-xs font-mono uppercase text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20 transition font-medium"
+              />
+            </div>
+          )}
+
+          <div className={paymentMethod === 'ONLINE' ? 'sm:col-span-1 lg:col-span-3' : 'w-full'}>
+            <label htmlFor="purchase-description-input" className="block text-xs font-bold text-stone-700 mb-1.5">
+              Description <span className="text-stone-400 font-normal lowercase">(optional)</span>
+            </label>
+            <input
+              id="purchase-description-input"
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Purchase order description, terms, consignment notes, or remarks..."
+              className="w-full rounded-xl border border-cream-300 bg-cream-50/40 px-3.5 py-2 text-xs text-stone-900 placeholder-stone-400 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20 transition"
+            />
           </div>
         </div>
 
@@ -1468,96 +1525,137 @@ export const PurchaseEntryPage: React.FC<PurchaseEntryPageProps> = ({
       {/* SUCCESS CONFIRMATION MODAL */}
       {savedPurchase && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-cream-300 bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-3.5">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-xs border border-emerald-200">
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                </svg>
+          <div className="w-full max-w-xl sm:max-w-2xl rounded-3xl border border-cream-300 bg-white p-6 sm:p-7 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-cream-200 pb-4">
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-xs border border-emerald-200">
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black tracking-tight text-stone-900">
+                    {editingPurchaseId
+                      ? 'Purchase Bill Successfully Updated!'
+                      : 'Purchase Bill Successfully Saved!'}
+                  </h3>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    {editingPurchaseId
+                      ? 'Inventory stock levels have been reconciled and updated.'
+                      : 'Stock inventory has been increased for all purchased items.'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-stone-900">
-                  {editingPurchaseId
-                    ? 'Purchase Bill Successfully Updated!'
-                    : 'Purchase Bill Successfully Saved!'}
-                </h3>
-                <p className="text-xs text-stone-500">
-                  {editingPurchaseId
-                    ? 'Inventory stock levels have been reconciled and updated.'
-                    : 'Stock inventory has been increased for all purchased items.'}
-                </p>
+
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800 border border-emerald-200 shrink-0 whitespace-nowrap">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                ✓ Verified
+              </span>
+            </div>
+
+            {/* Bill Details Summary Card */}
+            <div className="mt-5 rounded-2xl border border-cream-200/90 bg-cream-50/70 p-4 sm:p-5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-stone-500 font-medium whitespace-nowrap">Purchase ID:</span>
+                  <span className="font-mono font-bold text-stone-900 bg-white px-2 py-0.5 rounded-lg border border-cream-200 shadow-2xs whitespace-nowrap">
+                    {savedPurchase.purchaseNumber}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-stone-500 font-medium whitespace-nowrap">Vendor Invoice:</span>
+                  <span className="font-mono font-bold text-stone-900 bg-white px-2 py-0.5 rounded-lg border border-cream-200 shadow-2xs whitespace-nowrap">
+                    {savedPurchase.invoiceNumber}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-stone-500 font-medium whitespace-nowrap">Vendor Name:</span>
+                  <span className="font-bold text-stone-900 text-right truncate" title={savedPurchase.vendorName}>
+                    {savedPurchase.vendorName}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-stone-500 font-medium whitespace-nowrap">Products / Units:</span>
+                  <span className="font-bold text-stone-900 whitespace-nowrap">
+                    {savedPurchase.totalProductsCount} products ({savedPurchase.totalUnitsBought} units)
+                  </span>
+                </div>
+              </div>
+
+              {/* Grand Total Divider */}
+              <div className="border-t border-cream-300 pt-3.5 mt-3.5 flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500 block">
+                    Total Bill Amount
+                  </span>
+                  <span className="text-[11px] text-stone-400">
+                    Net payable for this entry
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl sm:text-2xl font-black font-mono text-amber-900">
+                    ₹{savedPurchase.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div className="mt-5 rounded-xl border border-cream-200/90 bg-cream-50/70 p-4 space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500 font-semibold">Purchase ID:</span>
-                <span className="font-mono font-bold text-stone-900 bg-white px-2 py-0.5 rounded border border-cream-200">{savedPurchase.purchaseNumber}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500 font-semibold">Vendor Invoice:</span>
-                <span className="font-mono font-bold text-stone-900 bg-white px-2 py-0.5 rounded border border-cream-200">{savedPurchase.invoiceNumber}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500 font-semibold">Vendor Name:</span>
-                <span className="font-bold text-stone-900">{savedPurchase.vendorName}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-stone-500 font-semibold">Products / Units:</span>
-                <span className="font-bold text-stone-900">
-                  {savedPurchase.totalProductsCount} products ({savedPurchase.totalUnitsBought} units)
-                </span>
-              </div>
-              <div className="flex justify-between items-center border-t border-cream-200 pt-2.5 text-sm font-bold">
-                <span className="text-stone-900">Total Amount:</span>
-                <span className="text-amber-800 font-mono text-base font-black">
-                  ₹{savedPurchase.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
+            {/* Action Buttons in 2 Clean Balanced Rows (No Text Wrapping) */}
+            <div className="mt-6 space-y-2.5">
+              {/* Row 1: Primary Print Actions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  id="btn-print-saved-purchase-bill"
+                  onClick={() => setViewingSavedBillPurchase(savedPurchase)}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-stone-900 hover:bg-black px-4 py-2.5 text-xs font-bold text-white transition shadow-xs whitespace-nowrap cursor-pointer"
+                  title="View & Print Official Purchase Invoice"
+                >
+                  <svg className="h-4 w-4 text-stone-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                  <span>Print Purchase Bill</span>
+                </button>
 
-            <div className="mt-6 flex flex-col sm:flex-row items-center gap-2.5">
-              <button
-                type="button"
-                id="btn-print-saved-purchase-bill"
-                onClick={() => setViewingSavedBillPurchase(savedPurchase)}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-stone-900 hover:bg-stone-800 px-4 py-2.5 text-xs font-bold text-white transition shadow-2xs"
-                title="View & Print Official Purchase Invoice"
-              >
-                <svg className="h-4 w-4 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                </svg>
-                Print Purchase Bill
-              </button>
+                <button
+                  type="button"
+                  id="btn-print-saved-purchase-barcodes"
+                  onClick={() => setBatchPrintingPurchase(savedPurchase)}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 px-4 py-2.5 text-xs font-bold text-amber-900 transition shadow-xs whitespace-nowrap cursor-pointer"
+                  title={`Print all barcodes for this entry (${savedPurchase.totalUnitsBought} total stickers)`}
+                >
+                  <svg className="h-4 w-4 text-amber-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                  </svg>
+                  <span>Print Entry Barcodes ({savedPurchase.totalUnitsBought})</span>
+                </button>
+              </div>
 
-              <button
-                type="button"
-                id="btn-print-saved-purchase-barcodes"
-                onClick={() => setBatchPrintingPurchase(savedPurchase)}
-                className="w-full sm:w-auto flex-1 inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 px-4 py-2.5 text-xs font-bold text-amber-900 transition shadow-2xs"
-                title={`Print all barcodes for this entry (${savedPurchase.totalUnitsBought} total stickers)`}
-              >
-                <svg className="h-4 w-4 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                </svg>
-                Print Entry Barcodes ({savedPurchase.totalUnitsBought})
-              </button>
+              {/* Row 2: Navigation & Flow Actions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={onNavigateToHistory}
+                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-cream-300 bg-white hover:bg-cream-100 px-4 py-2.5 text-xs font-bold text-stone-700 transition shadow-2xs whitespace-nowrap cursor-pointer"
+                >
+                  <svg className="h-4 w-4 text-stone-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>View History</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={onNavigateToHistory}
-                className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl border border-cream-300 bg-white hover:bg-cream-100 px-4 py-2.5 text-xs font-bold text-stone-700 transition"
-              >
-                View History
-              </button>
-
-              <button
-                type="button"
-                onClick={handleStartNewBill}
-                className="w-full sm:w-auto inline-flex items-center justify-center rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2.5 text-xs font-bold text-white transition shadow-xs"
-              >
-                {editingPurchaseId ? 'Return to History' : '+ New Bill'}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleStartNewBill}
+                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2.5 text-xs font-bold text-white transition shadow-xs whitespace-nowrap cursor-pointer"
+                >
+                  <span>{editingPurchaseId ? 'Return to History' : '+ New Bill'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

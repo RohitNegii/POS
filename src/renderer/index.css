@@ -206,7 +206,7 @@
     color: #000000 !important;
   }
 
-  /* Printable Customer Receipt (Thermal / 80mm POS style & A4 Tax Invoice) */
+  /* Printable Customer Sales Tax Invoice (Standard Full A4 Layout) */
   #printable-receipt,
   #printable-receipt * {
     overflow: visible !important;
@@ -215,32 +215,18 @@
     color: #000000 !important;
   }
 
-  #printable-receipt {
-    display: block !important;
-    background: #ffffff !important;
-    color: #000000 !important;
-    line-height: 1.35 !important;
-  }
-
-  /* Thermal 80mm Layout */
-  #printable-receipt[data-layout="thermal"],
-  body.print-layout-thermal #printable-receipt {
-    width: 80mm !important;
-    max-width: 80mm !important;
-    margin: 0 auto !important;
-    padding: 2mm !important;
-    font-size: 11px !important;
-    border: none !important;
-  }
-
-  /* Standard A4 Tax Invoice Layout */
+  #printable-receipt,
   #printable-receipt[data-layout="a4"],
   body.print-layout-a4 #printable-receipt {
+    display: block !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 auto !important;
     padding: 2mm 0 !important;
     font-size: 12px !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    line-height: 1.35 !important;
   }
 
   #printable-receipt table {

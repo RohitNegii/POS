@@ -5,6 +5,7 @@ import type {
   PurchaseDto,
   PurchasePaymentMethod,
   PurchasePaymentStatus,
+  PurchaseReturnDto,
 } from '../../shared/types/ipc';
 import { useToast } from '../context/ToastContext';
 import { usePurchases } from '../hooks/usePurchases';
@@ -14,17 +15,25 @@ import { getLocalDateString } from '../../shared/utils/date';
 import { BarcodePrintModal } from '../components/BarcodePrintModal';
 import { BatchBarcodePrintModal } from '../components/BatchBarcodePrintModal';
 import { PurchaseBillModal } from '../components/PurchaseBillModal';
+import { PurchaseReturnModal } from '../components/PurchaseReturnModal';
+import { DebitNoteModal } from '../components/DebitNoteModal';
 
 interface PurchaseHistoryPageProps {
   session: AuthSessionPayload;
   onNavigateToEntry?: () => void;
   onEditPurchase?: (purchaseId: string) => void;
+  targetPurchaseId?: string | null;
+  onClearTargetPurchaseId?: () => void;
+  onPaymentSettled?: () => void;
 }
 
 export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
   session,
   onNavigateToEntry,
   onEditPurchase,
+  targetPurchaseId,
+  onClearTargetPurchaseId,
+  onPaymentSettled,
 }) => {
   const { showError, showSuccess } = useToast();
   const {
@@ -56,12 +65,18 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
   const [editMethod, setEditMethod] = useState<PurchasePaymentMethod>('CASH');
   const [editPaymentDate, setEditPaymentDate] = useState<string>('');
   const [editPaidAmount, setEditPaidAmount] = useState<string>('');
+  const [editUtr, setEditUtr] = useState<string>('');
+  const [editDescription, setEditDescription] = useState<string>('');
   const [editNotes, setEditNotes] = useState<string>('');
   const [updatingPayment, setUpdatingPayment] = useState<boolean>(false);
 
   // Delete Purchase State
   const [purchaseToDelete, setPurchaseToDelete] = useState<PurchaseDto | null>(null);
   const [deletingPurchase, setDeletingPurchase] = useState<boolean>(false);
+
+  // Purchase Return / Debit Note State
+  const [returningPurchase, setReturningPurchase] = useState<PurchaseDto | null>(null);
+  const [activeDebitNote, setActiveDebitNote] = useState<PurchaseReturnDto | null>(null);
 
   const handleConfirmDeletePurchase = async () => {
     if (!purchaseToDelete) return;
@@ -144,11 +159,40 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
       p.paymentDate ||
       (normMethod !== 'NO_PAYMENT' ? (p.purchaseDate || getLocalDateString()) : '')
     );
+    setEditUtr(p.utr || '');
+    setEditDescription(p.description || '');
     setEditNotes(p.notes || '');
+  };
+
+  // Auto-open payment modal when navigated from overdue notification
+  useEffect(() => {
+    if (targetPurchaseId && purchases.length > 0) {
+      const match = purchases.find((p) => p.id === targetPurchaseId);
+      if (match) {
+        handleOpenEditPayment(match);
+        onClearTargetPurchaseId?.();
+      }
+    }
+  }, [targetPurchaseId, purchases, onClearTargetPurchaseId]);
+
+  const getDaysElapsed = (purchaseDateStr?: string | null): number => {
+    if (!purchaseDateStr) return 0;
+    try {
+      const todayStr = getLocalDateString();
+      const [tY, tM, tD] = todayStr.split('-').map(Number);
+      const [pY, pM, pD] = purchaseDateStr.slice(0, 10).split('-').map(Number);
+      const diff = Math.floor((Date.UTC(tY, tM - 1, tD) - Date.UTC(pY, pM - 1, pD)) / (1000 * 60 * 60 * 24));
+      return diff > 0 ? diff : 0;
+    } catch {
+      return 0;
+    }
   };
 
   const handleEditMethodChange = (newMethod: PurchasePaymentMethod) => {
     setEditMethod(newMethod);
+    if (newMethod !== 'ONLINE') {
+      setEditUtr('');
+    }
     if (newMethod === 'NO_PAYMENT') {
       setEditStatus('UNPAID');
       setEditPaidAmount('0');
@@ -171,6 +215,11 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
     e.preventDefault();
     if (!editingPurchase) return;
 
+    if (editMethod === 'ONLINE' && !editUtr.trim()) {
+      showError('UTR / Transaction Reference number is required for Online payment.');
+      return;
+    }
+
     setUpdatingPayment(true);
     try {
       const parsedPaid = parseFloat(editPaidAmount);
@@ -185,6 +234,8 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
         paymentMethod: editMethod,
         paymentDate: finalPaymentDate,
         paidAmount: isNoPay ? 0 : (isNaN(parsedPaid) ? undefined : parsedPaid),
+        utr: editMethod === 'ONLINE' ? editUtr.trim() : undefined,
+        description: editDescription.trim() || undefined,
         notes: editNotes.trim() || undefined,
       });
 
@@ -196,6 +247,7 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
           setBillPurchase(updated);
         }
         setEditingPurchase(null);
+        onPaymentSettled?.();
       } else {
         showError(error || 'Failed to update payment details.');
       }
@@ -471,11 +523,16 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                     (isPaid || purchase.paidAmount > 0) && purchase.paymentMethod !== 'NO_PAYMENT';
                   const effectivePaymentDate =
                     purchase.paymentDate || (isPaymentDone ? purchase.purchaseDate : null);
+                  const daysElapsed = getDaysElapsed(purchase.purchaseDate);
+                  const isOverdue = !isPaid && purchase.balanceAmount > 0 && daysElapsed >= 7;
+                  const daysOverdue = daysElapsed - 7;
 
                   return (
                     <tr
                       key={purchase.id}
-                      className="transition hover:bg-cream-50/60"
+                      className={`transition ${
+                        isOverdue ? 'bg-rose-50/30 hover:bg-rose-50/60' : 'hover:bg-cream-50/60'
+                      }`}
                     >
                       {/* Purchase ID */}
                       <td className="px-4 py-4 whitespace-nowrap font-mono font-bold text-amber-900">
@@ -518,8 +575,15 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                       </td>
 
                       {/* Total Units Bought */}
-                      <td className="px-4 py-4 text-center whitespace-nowrap font-bold text-stone-800">
-                        {purchase.totalUnitsBought}
+                      <td className="px-4 py-4 text-center whitespace-nowrap">
+                        <div className="font-bold text-stone-800">{purchase.totalUnitsBought}</div>
+                        {purchase.totalUnitsReturned !== undefined && purchase.totalUnitsReturned > 0 && (
+                          <span className="inline-block mt-0.5 rounded px-1.5 py-0.2 text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                            {purchase.totalUnitsReturned >= purchase.totalUnitsBought
+                              ? '100% Returned'
+                              : `${purchase.totalUnitsReturned} returned`}
+                          </span>
+                        )}
                       </td>
 
                       {/* Bill Total Amount */}
@@ -557,6 +621,21 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                             No Payment
                           </span>
                         )}
+                        {purchase.utr && (
+                          <div className="text-[10px] text-amber-800 font-mono font-medium mt-0.5">
+                            UTR: {purchase.utr}
+                          </div>
+                        )}
+                        {isOverdue && (
+                          <div className="mt-1">
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 text-[10px] font-bold"
+                              title={`${daysElapsed} days since bill date (${daysOverdue === 0 ? '7 days pending' : `${daysOverdue} days overdue`})`}
+                            >
+                              ⚠️ Overdue ({daysElapsed}d)
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Payment Date (if payment was done) */}
@@ -573,9 +652,26 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                         )}
                       </td>
 
-                      {/* Actions: Print Barcodes, View Bill & Edit Complete Purchase */}
+                      {/* Actions: Settle Payment, Print Barcodes, View Bill & Edit Complete Purchase */}
                       <td className="px-4 py-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
+                          {/* Dedicated Pay / Settle Button */}
+                          <button
+                            type="button"
+                            id={`btn-settle-payment-${purchase.id}`}
+                            onClick={() => handleOpenEditPayment(purchase)}
+                            className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition shadow-2xs ${
+                              isOverdue
+                                ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
+                                : isPaid
+                                ? 'border border-cream-300 bg-white hover:bg-cream-100 text-stone-700'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            }`}
+                            title="Record or update vendor payment details"
+                          >
+                            💳 {isPaid ? 'Payment' : 'Pay / Settle'}
+                          </button>
+
                           <button
                             type="button"
                             id={`btn-print-barcodes-${purchase.id}`}
@@ -598,6 +694,15 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
                             View Bill
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setReturningPurchase(purchase)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-900 shadow-2xs transition"
+                            title="Return purchased items back to vendor and deduct inventory stock"
+                          >
+                            ↩️ Return
                           </button>
 
                           <button
@@ -649,6 +754,7 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
         onEditPurchase={onEditPurchase}
         onOpenEditPayment={handleOpenEditPayment}
         onDeletePurchase={(p) => setPurchaseToDelete(p)}
+        onReturnToVendor={(p) => setReturningPurchase(p)}
         onBatchPrintBarcodes={(p) => setBatchPrintingPurchase(p)}
         onPrintItemBarcode={handlePrintItemBarcode}
       />
@@ -746,6 +852,37 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
                     }
                   }}
                   className="w-full rounded-xl border border-cream-300 bg-cream-50/50 px-3 py-2 text-xs font-bold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
+                />
+              </div>
+
+              {/* UTR Field - Required if Online */}
+              {editMethod === 'ONLINE' && (
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 mb-1.5">
+                    UTR / Transaction Ref <span className="text-red-500 font-bold">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editUtr}
+                    onChange={(e) => setEditUtr(e.target.value)}
+                    placeholder="e.g. UTR / IMPS / UPI Ref"
+                    className="w-full rounded-xl border border-amber-300 bg-amber-50/40 px-3 py-2 text-xs font-mono uppercase font-semibold text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Description Field - Optional */}
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  Description <span className="text-stone-400 font-normal lowercase">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="e.g. Consignment terms or order description"
+                  className="w-full rounded-xl border border-cream-300 bg-cream-50/50 px-3.5 py-2 text-xs text-stone-900 focus:border-amber-600 focus:bg-white focus:outline-none"
                 />
               </div>
 
@@ -867,6 +1004,31 @@ export const PurchaseHistoryPage: React.FC<PurchaseHistoryPageProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* PURCHASE RETURN / DEBIT NOTE MODAL */}
+      {returningPurchase && (
+        <PurchaseReturnModal
+          isOpen={Boolean(returningPurchase)}
+          onClose={() => setReturningPurchase(null)}
+          purchase={returningPurchase}
+          session={session}
+          onSuccess={(returnDto) => {
+            setReturningPurchase(null);
+            setActiveDebitNote(returnDto);
+            void refreshPurchases();
+          }}
+        />
+      )}
+
+      {/* VIEW & PRINT OFFICIAL DEBIT NOTE MODAL */}
+      {activeDebitNote && (
+        <DebitNoteModal
+          isOpen={Boolean(activeDebitNote)}
+          onClose={() => setActiveDebitNote(null)}
+          returnRecord={activeDebitNote}
+          session={session}
+        />
       )}
     </div>
   );

@@ -161,6 +161,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  setEmail('superadmin@example.com');
+                  setPassword('SuperAdmin@123');
+                }}
+                className="w-full flex items-center justify-between rounded-xl border border-purple-300 bg-purple-50/70 hover:bg-purple-100/70 p-2 text-left transition"
+              >
+                <div>
+                  <div className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-purple-600" />
+                    Super Admin (User Management)
+                  </div>
+                  <div className="text-[10px] text-purple-800">superadmin@example.com • SuperAdmin@123</div>
+                </div>
+                <span className="rounded bg-purple-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                  Fill
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
                   setEmail('adminA@example.com');
                   setPassword('Admin@123');
                 }}
@@ -207,7 +227,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         </div>
 
         <div className="mt-4 text-center text-xs text-stone-500">
-          Retail POS Desktop
+          Retail POS Desktop v1.0.4
         </div>
       </div>
     </div>

@@ -115,8 +115,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <div className="font-semibold text-stone-800 mt-0.5">{product.categoryName}</div>
             </div>
             <div>
-              <span className="text-stone-500 font-medium">Stock Quantity:</span>
-              <div className="font-semibold font-mono text-emerald-700 mt-0.5">{product.stockQuantity}</div>
+              <span className="text-stone-500 font-medium">Stock Available:</span>
+              {(() => {
+                const isPerMeter =
+                  product.fieldValues?.some(
+                    (fv) =>
+                      fv.categoryField?.fieldKey === 'sellingPricePerMeter' ||
+                      fv.categoryField?.fieldKey === 'ratePerMeter'
+                  ) || /meter|fabric|linear/i.test(product.categoryName || '');
+                return (
+                  <div className="font-semibold font-mono text-emerald-700 mt-0.5">
+                    {product.stockQuantity} {isPerMeter ? 'Meters' : 'Units'}
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <span className="text-stone-500 font-medium">Status:</span>

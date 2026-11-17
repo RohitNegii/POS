@@ -1,6 +1,6 @@
 {
   "name": "pos-retail-desktop",
-  "version": "0.1.0",
+  "version": "1.0.4",
   "private": true,
   "description": "Windows Offline Retail Management and POS Desktop Application",
   "author": "Retail POS Desktop",
@@ -17,6 +17,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
     "db:clear": "node scripts/clear-db-data.cjs",
+    "db:reset": "node scripts/reset_and_seed.cjs",
     "typecheck": "tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.main.json --noEmit"
   },
   "prisma": {

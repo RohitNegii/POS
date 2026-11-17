@@ -24,7 +24,9 @@ import type {
   JewelleryPriceCalculationResult,
   ScannedProductDto,
   CreateBillRequest,
+  UpdateBillRequest,
   BillDto,
+  CustomerRecordDto,
   ListBillsFilter,
   VendorDto,
   CreateVendorRequest,
@@ -34,6 +36,25 @@ import type {
   UpdatePurchaseRequest,
   UpdatePurchasePaymentRequest,
   ListPurchasesFilter,
+  OverduePurchasesSummary,
+  PurchaseReturnDto,
+  CreatePurchaseReturnRequest,
+  ListPurchaseReturnsFilter,
+  BillingUserDto,
+  CreateBillingUserRequest,
+  UpdateBillingUserRequest,
+  CompanyBalanceDto,
+  CompanyExpenseTotalsDto,
+  CreateExpenseCategoryRequest,
+  CreateExpenseRequest,
+  ExpenseCategoryDto,
+  ExpenseDto,
+  ExpensesListResponse,
+  ExpenseSummaryDto,
+  GetCompanyExpenseTotalsParams,
+  ListExpensesFilter,
+  UpdateExpenseCategoryRequest,
+  UpdateExpenseRequest,
 } from '../../shared/types/ipc';
 
 
@@ -348,6 +369,26 @@ export const ipcClient = {
     return window.posApi.createBill(input);
   },
 
+  async updateBill(input: UpdateBillRequest): Promise<IpcResult<BillDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.updateBill(input);
+  },
+
+  async cancelBill(id: string, reason?: string): Promise<IpcResult<BillDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.cancelBill(id, reason);
+  },
+
   async listBills(filter?: ListBillsFilter): Promise<IpcResult<BillDto[]>> {
     if (!window.posApi) {
       return {
@@ -366,6 +407,16 @@ export const ipcClient = {
       };
     }
     return window.posApi.getBillById(id);
+  },
+
+  async listCustomerRecords(search?: string): Promise<IpcResult<CustomerRecordDto[]>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.listCustomerRecords(search);
   },
 
   async listVendors(search?: string): Promise<IpcResult<VendorDto[]>> {
@@ -476,6 +527,218 @@ export const ipcClient = {
       };
     }
     return window.posApi.deletePurchase(id);
+  },
+
+  async getOverduePurchases(thresholdDays?: number): Promise<IpcResult<OverduePurchasesSummary>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.getOverduePurchases(thresholdDays);
+  },
+
+  async createPurchaseReturn(input: CreatePurchaseReturnRequest): Promise<IpcResult<PurchaseReturnDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.createPurchaseReturn(input);
+  },
+
+  async listPurchaseReturns(filter?: ListPurchaseReturnsFilter): Promise<IpcResult<PurchaseReturnDto[]>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.listPurchaseReturns(filter);
+  },
+
+  async getPurchaseReturnById(id: string): Promise<IpcResult<PurchaseReturnDto | null>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.getPurchaseReturnById(id);
+  },
+
+  async listBillingUsers(): Promise<IpcResult<BillingUserDto[]>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.listBillingUsers();
+  },
+
+  async createBillingUser(input: CreateBillingUserRequest): Promise<IpcResult<BillingUserDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.createBillingUser(input);
+  },
+
+  async updateBillingUser(input: UpdateBillingUserRequest): Promise<IpcResult<BillingUserDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.updateBillingUser(input);
+  },
+
+  async deleteBillingUser(id: string): Promise<IpcResult<{ id: string; name: string }>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.deleteBillingUser(id);
+  },
+
+  async listExpenses(filter?: ListExpensesFilter): Promise<IpcResult<ExpensesListResponse>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.listExpenses(filter);
+  },
+
+  async getExpenseById(id: string): Promise<IpcResult<ExpenseDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.getExpenseById(id);
+  },
+
+  async createExpense(input: CreateExpenseRequest): Promise<IpcResult<ExpenseDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.createExpense(input);
+  },
+
+  async updateExpense(input: UpdateExpenseRequest): Promise<IpcResult<ExpenseDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.updateExpense(input);
+  },
+
+  async deleteExpense(id: string): Promise<IpcResult<{ message: string }>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.deleteExpense(id);
+  },
+
+  async getExpenseSummary(filter?: ListExpensesFilter): Promise<IpcResult<ExpenseSummaryDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.getExpenseSummary(filter);
+  },
+
+  async getCompanyBalances(companyId?: string): Promise<IpcResult<CompanyBalanceDto[]>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.getCompanyBalances(companyId);
+  },
+
+  async getCompanyExpenseTotals(
+    params?: GetCompanyExpenseTotalsParams
+  ): Promise<IpcResult<CompanyExpenseTotalsDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.getCompanyExpenseTotals(params);
+  },
+
+  async listExpenseCategories(): Promise<IpcResult<ExpenseCategoryDto[]>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.listExpenseCategories();
+  },
+
+  async createExpenseCategory(input: CreateExpenseCategoryRequest): Promise<IpcResult<ExpenseCategoryDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.createExpenseCategory(input);
+  },
+
+  async updateExpenseCategory(input: UpdateExpenseCategoryRequest): Promise<IpcResult<ExpenseCategoryDto>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.updateExpenseCategory(input);
+  },
+
+  async deleteExpenseCategory(id: string): Promise<IpcResult<{ message: string }>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.deleteExpenseCategory(id);
+  },
+
+  async listEmployees(): Promise<IpcResult<BillingUserDto[]>> {
+    if (!window.posApi) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi) is not available.',
+      };
+    }
+    return window.posApi.listEmployees();
   },
 };
 

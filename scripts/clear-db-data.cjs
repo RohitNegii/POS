@@ -137,18 +137,39 @@ async function clearRetailPosDatabase(dbPath) {
 }
 
 async function main() {
-  const appData = process.env.APPDATA || '';
+  const os = require('os');
+  const home = os.homedir();
+  const targetDatabases = [];
 
-  const targetDatabases = [
-    // Primary active database
-    path.join(appData, 'pos-retail-desktop', 'app-data', 'pos-system.sqlite'),
-    // Legacy / Electron default userData if present
-    path.join(appData, 'Electron', 'app-data', 'pos-system.sqlite'),
-    // Local dev db if present
+  // macOS paths
+  if (process.platform === 'darwin') {
+    targetDatabases.push(
+      path.join(home, 'Library', 'Application Support', 'pos-retail-desktop', 'app-data', 'pos-system.sqlite'),
+      path.join(home, 'Library', 'Application Support', 'Electron', 'app-data', 'pos-system.sqlite')
+    );
+  }
+
+  // Windows paths
+  if (process.env.APPDATA) {
+    targetDatabases.push(
+      path.join(process.env.APPDATA, 'pos-retail-desktop', 'app-data', 'pos-system.sqlite'),
+      path.join(process.env.APPDATA, 'Electron', 'app-data', 'pos-system.sqlite')
+    );
+  }
+
+  // Linux paths
+  targetDatabases.push(
+    path.join(home, '.config', 'pos-retail-desktop', 'app-data', 'pos-system.sqlite'),
+    path.join(home, '.config', 'Electron', 'app-data', 'pos-system.sqlite')
+  );
+
+  // Local repository dev databases
+  targetDatabases.push(
     path.join(__dirname, '..', 'prisma', 'dev.db'),
-  ];
+    path.join(__dirname, '..', 'prisma', 'prisma', 'dev.db')
+  );
 
-  for (const dbPath of targetDatabases) {
+  for (const dbPath of Array.from(new Set(targetDatabases))) {
     if (fs.existsSync(dbPath)) {
       await clearRetailPosDatabase(dbPath);
     }

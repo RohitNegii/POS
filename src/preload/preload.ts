@@ -55,8 +55,11 @@ const CHANNELS = {
   BILLING_SCAN_PRODUCT: 'billing:scan-product',
   BILLING_SEARCH_PRODUCTS: 'billing:search-products',
   BILLING_CREATE_BILL: 'billing:create-bill',
+  BILLING_UPDATE_BILL: 'billing:update-bill',
+  BILLING_CANCEL_BILL: 'billing:cancel-bill',
   BILLING_LIST_BILLS: 'billing:list-bills',
   BILLING_GET_BILL_BY_ID: 'billing:get-bill-by-id',
+  BILLING_LIST_CUSTOMER_RECORDS: 'billing:list-customer-records',
   VENDOR_LIST: 'vendor:list',
   VENDOR_CREATE: 'vendor:create',
   VENDOR_UPDATE: 'vendor:update',
@@ -68,6 +71,27 @@ const CHANNELS = {
   PURCHASE_UPDATE: 'purchase:update',
   PURCHASE_UPDATE_PAYMENT: 'purchase:update-payment',
   PURCHASE_DELETE: 'purchase:delete',
+  PURCHASE_GET_OVERDUE: 'purchase:get-overdue',
+  PURCHASE_RETURN_CREATE: 'purchase-return:create',
+  PURCHASE_RETURN_LIST: 'purchase-return:list',
+  PURCHASE_RETURN_GET_BY_ID: 'purchase-return:get-by-id',
+  BILLING_USER_LIST: 'billing-user:list',
+  BILLING_USER_CREATE: 'billing-user:create',
+  BILLING_USER_UPDATE: 'billing-user:update',
+  BILLING_USER_DELETE: 'billing-user:delete',
+  EXPENSE_LIST: 'expense:list',
+  EXPENSE_GET_BY_ID: 'expense:get-by-id',
+  EXPENSE_CREATE: 'expense:create',
+  EXPENSE_UPDATE: 'expense:update',
+  EXPENSE_DELETE: 'expense:delete',
+  EXPENSE_GET_SUMMARY: 'expense:get-summary',
+  EXPENSE_GET_COMPANY_BALANCES: 'expense:get-company-balances',
+  EXPENSE_GET_COMPANY_TOTALS: 'expense:get-company-totals',
+  EXPENSE_CATEGORY_LIST: 'expense-category:list',
+  EXPENSE_CATEGORY_CREATE: 'expense-category:create',
+  EXPENSE_CATEGORY_UPDATE: 'expense-category:update',
+  EXPENSE_CATEGORY_DELETE: 'expense-category:delete',
+  EMPLOYEE_LIST: 'employee:list',
 } as const;
 
 const posDesktopApi: PosDesktopApi = Object.freeze({
@@ -161,11 +185,20 @@ const posDesktopApi: PosDesktopApi = Object.freeze({
   createBill: (input: any): Promise<IpcResult<any>> => {
     return ipcRenderer.invoke(CHANNELS.BILLING_CREATE_BILL, input);
   },
+  updateBill: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_UPDATE_BILL, input);
+  },
+  cancelBill: (id: string, reason?: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_CANCEL_BILL, id, reason);
+  },
   listBills: (filter?: any): Promise<IpcResult<any[]>> => {
     return ipcRenderer.invoke(CHANNELS.BILLING_LIST_BILLS, filter);
   },
   getBillById: (id: string): Promise<IpcResult<any>> => {
     return ipcRenderer.invoke(CHANNELS.BILLING_GET_BILL_BY_ID, id);
+  },
+  listCustomerRecords: (search?: string): Promise<IpcResult<any[]>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_LIST_CUSTOMER_RECORDS, search);
   },
   listVendors: (search?: string): Promise<IpcResult<any[]>> => {
     return ipcRenderer.invoke(CHANNELS.VENDOR_LIST, search);
@@ -199,6 +232,69 @@ const posDesktopApi: PosDesktopApi = Object.freeze({
   },
   deletePurchase: (id: string): Promise<IpcResult<any>> => {
     return ipcRenderer.invoke(CHANNELS.PURCHASE_DELETE, id);
+  },
+  getOverduePurchases: (thresholdDays?: number): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_GET_OVERDUE, thresholdDays);
+  },
+  createPurchaseReturn: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_RETURN_CREATE, input);
+  },
+  listPurchaseReturns: (filter?: any): Promise<IpcResult<any[]>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_RETURN_LIST, filter);
+  },
+  getPurchaseReturnById: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.PURCHASE_RETURN_GET_BY_ID, id);
+  },
+  listBillingUsers: (): Promise<IpcResult<any[]>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_USER_LIST);
+  },
+  createBillingUser: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_USER_CREATE, input);
+  },
+  updateBillingUser: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_USER_UPDATE, input);
+  },
+  deleteBillingUser: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BILLING_USER_DELETE, id);
+  },
+  listExpenses: (filter?: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_LIST, filter);
+  },
+  getExpenseById: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_GET_BY_ID, id);
+  },
+  createExpense: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_CREATE, input);
+  },
+  updateExpense: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_UPDATE, input);
+  },
+  deleteExpense: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_DELETE, id);
+  },
+  getExpenseSummary: (filter?: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_GET_SUMMARY, filter);
+  },
+  getCompanyBalances: (companyId?: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_GET_COMPANY_BALANCES, companyId);
+  },
+  getCompanyExpenseTotals: (params?: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_GET_COMPANY_TOTALS, params);
+  },
+  listExpenseCategories: (): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_CATEGORY_LIST);
+  },
+  createExpenseCategory: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_CATEGORY_CREATE, input);
+  },
+  updateExpenseCategory: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_CATEGORY_UPDATE, input);
+  },
+  deleteExpenseCategory: (id: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EXPENSE_CATEGORY_DELETE, id);
+  },
+  listEmployees: (): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.EMPLOYEE_LIST);
   },
 });
 

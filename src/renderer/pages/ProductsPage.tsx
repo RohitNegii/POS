@@ -226,9 +226,31 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({ session, onNavigateT
 
                     {/* Stock */}
                     <td className="px-6 py-4 whitespace-nowrap font-mono text-xs font-bold text-stone-800">
-                      {prod.stockQuantity !== null && prod.stockQuantity !== undefined
-                        ? prod.stockQuantity
-                        : <span className="text-stone-400">0</span>}
+                      {(() => {
+                        const isPerMeter = prod.fieldValues?.some(
+                          (fv) =>
+                            fv.categoryField?.fieldKey === 'sellingPricePerMeter' ||
+                            fv.categoryField?.fieldKey === 'ratePerMeter'
+                        ) || /meter|fabric|linear/i.test(prod.categoryName || '');
+
+                        if (prod.stockQuantity !== null && prod.stockQuantity !== undefined) {
+                          return (
+                            <span>
+                              {prod.stockQuantity}
+                              {isPerMeter ? (
+                                <span className="text-[10px] text-cyan-800 font-bold bg-cyan-50 border border-cyan-200 rounded px-1 ml-1 font-sans">
+                                  Meters
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-stone-400 font-normal ml-0.5 font-sans">
+                                  pcs
+                                </span>
+                              )}
+                            </span>
+                          );
+                        }
+                        return <span className="text-stone-400">0</span>;
+                      })()}
                     </td>
 
                     {/* Price */}

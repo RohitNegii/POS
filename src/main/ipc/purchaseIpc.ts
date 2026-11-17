@@ -7,8 +7,15 @@ import type {
   IpcResult,
   ListPurchasesFilter,
   PurchaseDto,
+  OverduePurchasesSummary,
 } from '../../shared/types/ipc';
 import { purchaseService } from '../services/purchaseService';
+import { purchaseReturnService } from '../services/purchaseReturnService';
+import type {
+  CreatePurchaseReturnRequest,
+  ListPurchaseReturnsFilter,
+  PurchaseReturnDto,
+} from '../../shared/types/ipc';
 
 export function registerPurchaseIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_LIST);
@@ -104,6 +111,25 @@ export function registerPurchaseIpcHandlers(): void {
     }
   );
 
+  ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_GET_OVERDUE);
+  ipcMain.handle(
+    IPC_CHANNELS.PURCHASE_GET_OVERDUE,
+    async (
+      _event,
+      thresholdDays?: number
+    ): Promise<IpcResult<OverduePurchasesSummary>> => {
+      try {
+        const summary = await purchaseService.getOverduePurchases(thresholdDays);
+        return { success: true, data: summary };
+      } catch (error) {
+        console.error('[IPC ERROR: purchase:get-overdue]', error);
+        const message =
+          error instanceof Error ? error.message : 'Failed to retrieve overdue purchases.';
+        return { success: false, error: message };
+      }
+    }
+  );
+
   ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_DELETE);
   ipcMain.handle(
     IPC_CHANNELS.PURCHASE_DELETE,
@@ -118,6 +144,46 @@ export function registerPurchaseIpcHandlers(): void {
         const message =
           error instanceof Error ? error.message : 'Failed to delete purchase.';
         return { success: false, error: message };
+      }
+    }
+  );
+
+  ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_RETURN_CREATE);
+  ipcMain.handle(
+    IPC_CHANNELS.PURCHASE_RETURN_CREATE,
+    async (_event, input: CreatePurchaseReturnRequest): Promise<IpcResult<PurchaseReturnDto>> => {
+      try {
+        const ret = await purchaseReturnService.createPurchaseReturn(input);
+        return { success: true, data: ret };
+      } catch (error) {
+        console.error('[IPC ERROR: purchase-return:create]', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to process purchase return.' };
+      }
+    }
+  );
+
+  ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_RETURN_LIST);
+  ipcMain.handle(
+    IPC_CHANNELS.PURCHASE_RETURN_LIST,
+    async (_event, filter?: ListPurchaseReturnsFilter): Promise<IpcResult<PurchaseReturnDto[]>> => {
+      try {
+        const list = await purchaseReturnService.listPurchaseReturns(filter);
+        return { success: true, data: list };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to list purchase returns.' };
+      }
+    }
+  );
+
+  ipcMain.removeHandler(IPC_CHANNELS.PURCHASE_RETURN_GET_BY_ID);
+  ipcMain.handle(
+    IPC_CHANNELS.PURCHASE_RETURN_GET_BY_ID,
+    async (_event, id: string): Promise<IpcResult<PurchaseReturnDto | null>> => {
+      try {
+        const ret = await purchaseReturnService.getPurchaseReturnById(id);
+        return { success: true, data: ret };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to get purchase return.' };
       }
     }
   );

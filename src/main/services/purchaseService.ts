@@ -9,6 +9,8 @@ import type {
   CreatePurchaseItemInput,
   CreatePurchaseRequest,
   ListPurchasesFilter,
+  OverduePurchaseDto,
+  OverduePurchasesSummary,
   PurchaseDto,
   PurchaseItemDto,
   PurchasePaymentMethod,
@@ -79,12 +81,16 @@ export class PurchaseService {
    * Displays all saved purchase bills with itemized products list, invoice number, and payment status.
    */
   public async listPurchases(filter?: ListPurchasesFilter): Promise<PurchaseDto[]> {
-    const companyId = authService.getAuthenticatedCompanyId();
+    const authCompanyId = authService.getAuthenticatedCompanyId();
+    const targetCompanyId = (filter?.companyId && filter.companyId !== 'ALL')
+      ? filter.companyId
+      : (authCompanyId !== 'ALL' ? authCompanyId : undefined);
     const prisma = getPrismaClient();
 
-    const where: Prisma.PurchaseWhereInput = {
-      companyId,
-    };
+    const where: Prisma.PurchaseWhereInput = {};
+    if (targetCompanyId) {
+      where.companyId = targetCompanyId;
+    }
 
     if (filter?.vendorId) {
       where.vendorId = filter.vendorId;
@@ -101,10 +107,10 @@ export class PurchaseService {
     if (filter?.startDate || filter?.endDate) {
       where.purchaseDate = {};
       if (filter.startDate) {
-        where.purchaseDate.gte = filter.startDate;
+        where.purchaseDate.gte = filter.startDate.slice(0, 10);
       }
       if (filter.endDate) {
-        where.purchaseDate.lte = filter.endDate;
+        where.purchaseDate.lte = filter.endDate.slice(0, 10);
       }
     }
 
@@ -136,6 +142,7 @@ export class PurchaseService {
         },
         items: {
           include: {
+            returnItems: true,
             product: {
               select: {
                 id: true,
@@ -179,6 +186,7 @@ export class PurchaseService {
         },
         items: {
           include: {
+            returnItems: true,
             product: {
               select: {
                 id: true,
@@ -196,6 +204,84 @@ export class PurchaseService {
     }
 
     return this.mapPurchaseToDto(p);
+  }
+
+  /**
+   * Retrieves overdue vendor purchases where payment is pending and days elapsed >= thresholdDays (default: 7 days).
+   * Scoped strictly to the authenticated company.
+   */
+  public async getOverduePurchases(thresholdDays = 7): Promise<OverduePurchasesSummary> {
+    const authCompanyId = authService.getAuthenticatedCompanyId();
+    if (!authCompanyId || authCompanyId === 'ALL') {
+      return { overdueCount: 0, totalOverdueAmount: 0, thresholdDays, items: [] };
+    }
+
+    const prisma = getPrismaClient();
+    const todayStr = getLocalDateString();
+    const [tY, tM, tD] = todayStr.split('-').map(Number);
+    const todayUtc = Date.UTC(tY, tM - 1, tD);
+
+    const purchases = await prisma.purchase.findMany({
+      where: {
+        companyId: authCompanyId,
+        paymentStatus: { in: ['UNPAID', 'PARTIAL'] },
+        balanceAmount: { gt: 0 },
+      },
+      include: {
+        vendor: {
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
+          },
+        },
+      },
+      orderBy: [
+        { purchaseDate: 'asc' },
+        { createdAt: 'asc' },
+      ],
+    });
+
+    const overdueItems: OverduePurchaseDto[] = [];
+    let totalOverdueAmount = 0;
+
+    for (const p of purchases) {
+      const pDateStr = p.purchaseDate || getLocalDateString(p.createdAt);
+      const [pY, pM, pD] = pDateStr.split('-').map(Number);
+      const purchaseUtc = Date.UTC(pY, pM - 1, pD);
+      const daysElapsed = Math.floor((todayUtc - purchaseUtc) / (1000 * 60 * 60 * 24));
+
+      if (daysElapsed >= thresholdDays) {
+        const daysOverdue = daysElapsed - thresholdDays;
+        const balance = Math.round(Number(p.balanceAmount) * 100) / 100;
+        totalOverdueAmount += balance;
+
+        overdueItems.push({
+          id: p.id,
+          purchaseNumber: p.purchaseNumber,
+          invoiceNumber: p.invoiceNumber,
+          companyId: p.companyId,
+          vendorId: p.vendorId,
+          vendorName: p.vendor?.name || 'Unknown Vendor',
+          vendorPhone: p.vendor?.phoneNumber || null,
+          purchaseDate: pDateStr,
+          totalAmount: Number(p.totalAmount),
+          paidAmount: Number(p.paidAmount),
+          balanceAmount: balance,
+          paymentStatus: p.paymentStatus as PurchasePaymentStatus,
+          paymentMethod: p.paymentMethod as PurchasePaymentMethod,
+          daysElapsed,
+          daysOverdue,
+        });
+      }
+    }
+
+    return {
+      overdueCount: overdueItems.length,
+      totalOverdueAmount: Math.round(totalOverdueAmount * 100) / 100,
+      thresholdDays,
+      items: overdueItems,
+    };
   }
 
   /**
@@ -465,6 +551,12 @@ export class PurchaseService {
       paymentStatus = 'UNPAID';
     }
 
+    // UTR validation: When payment method is ONLINE, UTR is required
+    const utr = (input.utr || '').trim();
+    if (paymentMethod === 'ONLINE' && !utr) {
+      throw new Error('UTR / Transaction Reference number is required when payment method is Online.');
+    }
+
     // 6. Idempotency & Duplicate prevention: Check if duplicate bill was already submitted
     const duplicateBill = await prisma.purchase.findFirst({
       where: {
@@ -508,6 +600,8 @@ export class PurchaseService {
           paymentMethod,
           paymentStatus,
           paymentDate,
+          utr: paymentMethod === 'ONLINE' ? utr : null,
+          description: input.description?.trim() || null,
           notes: input.notes?.trim() || null,
         } as any,
       });
@@ -975,6 +1069,12 @@ export class PurchaseService {
       paymentStatus = 'UNPAID';
     }
 
+    // UTR validation: When payment method is ONLINE, UTR is required
+    const utr = (input.utr !== undefined ? input.utr : (existing as any).utr || '').trim();
+    if (paymentMethod === 'ONLINE' && !utr) {
+      throw new Error('UTR / Transaction Reference number is required when payment method is Online.');
+    }
+
     // 6. Transaction: Revert old inventory increments, delete old items, insert new items & increment new inventory, update purchase
     await prisma.$transaction(async (tx) => {
       // Reconcile stock from old items and clean up products removed from this bill
@@ -1223,6 +1323,8 @@ export class PurchaseService {
           paymentMethod,
           paymentStatus,
           paymentDate,
+          utr: paymentMethod === 'ONLINE' ? utr || null : null,
+          description: input.description !== undefined ? input.description?.trim() || null : (existing as any).description,
           notes: input.notes !== undefined ? input.notes?.trim() || null : existing.notes,
         } as any,
       });
@@ -1288,6 +1390,11 @@ export class PurchaseService {
       paymentDate = getLocalDateString();
     }
 
+    const utr = (input.utr !== undefined ? input.utr : (existing as any).utr || '').trim();
+    if (paymentMethod === 'ONLINE' && !utr) {
+      throw new Error('UTR / Transaction Reference number is required when payment method is Online.');
+    }
+
     const finalNote = input.notes !== undefined ? input.notes.trim() || null : existing.notes;
 
     await prisma.purchase.update({
@@ -1298,6 +1405,8 @@ export class PurchaseService {
         paymentDate,
         paidAmount,
         balanceAmount,
+        utr: paymentMethod === 'ONLINE' ? utr || null : null,
+        description: input.description !== undefined ? input.description?.trim() || null : (existing as any).description,
         notes: finalNote,
       } as any,
     });
@@ -1401,6 +1510,7 @@ export class PurchaseService {
       categoryName: item.categoryName,
       hsnCode: item.hsnCode || null,
       quantityBought: item.quantityBought,
+      quantityReturned: item.returnItems?.reduce((sum: number, r: any) => sum + r.quantityReturned, 0) || 0,
       currentStock: item.product ? item.product.stockQuantity : 0,
       unitCost: item.unitCost,
       discount: item.discount || 0,
@@ -1421,6 +1531,7 @@ export class PurchaseService {
 
     const totalProductsCount = items.length;
     const totalUnitsBought = items.reduce((acc, it) => acc + it.quantityBought, 0);
+    const totalUnitsReturned = items.reduce((acc, it) => acc + (it.quantityReturned || 0), 0);
 
     const purchaseNumber = p.purchaseNumber || `PUR-${p.purchaseDate.replace(/-/g, '')}-${p.id.slice(0, 6).toUpperCase()}`;
     const invoiceNumber = p.invoiceNumber || `INV-${p.id.slice(0, 6).toUpperCase()}`;
@@ -1491,8 +1602,11 @@ export class PurchaseService {
       balanceAmount,
       totalProductsCount,
       totalUnitsBought,
+      totalUnitsReturned,
       paymentStatus,
       paymentMethod,
+      utr: (p as any).utr || null,
+      description: (p as any).description || null,
       notes: p.notes,
       createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : String(p.createdAt),
       updatedAt: p.updatedAt instanceof Date ? p.updatedAt.toISOString() : String(p.updatedAt),

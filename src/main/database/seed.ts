@@ -47,6 +47,13 @@ export const FIXED_ADMINS: readonly FixedAdminDefinition[] = Object.freeze([
     passwordPlain: 'Billing@123',
     role: 'BILLING_USER',
   },
+  {
+    companyCode: 'COMPANY_A',
+    name: 'Super Admin',
+    email: 'superadmin@example.com',
+    passwordPlain: 'SuperAdmin@123',
+    role: 'SUPER_ADMIN',
+  },
 ]);
 
 export interface SeededCompanyResult {
@@ -805,6 +812,52 @@ export async function seedSampleVendors(prisma: PrismaClient): Promise<void> {
 }
 
 /**
+ * Idempotently seeds initial billing user operators if none exist.
+ */
+export async function seedDefaultBillingUsers(prisma: PrismaClient): Promise<void> {
+  const count = await prisma.billingUser.count();
+  if (count === 0) {
+    const defaultUsers = ['Billing Cashier', 'Counter Staff 1'];
+    for (const name of defaultUsers) {
+      await prisma.billingUser.create({
+        data: { name },
+      });
+    }
+  }
+}
+
+export const DEFAULT_EXPENSE_CATEGORIES = [
+  { name: 'Salary', description: 'Employee wages, salaries, and compensation', isDefault: true },
+  { name: 'Conveyance', description: 'Travel, petrol, local transportation expenses', isDefault: true },
+  { name: 'Electricity', description: 'Showroom electricity bills and power backup', isDefault: true },
+  { name: 'Maintenance', description: 'Shop repairs, renovation, and equipment maintenance', isDefault: true },
+  { name: 'Rent', description: 'Store/showroom lease and premises rent', isDefault: true },
+  { name: 'Internet', description: 'Broadband, telephone, and networking charges', isDefault: true },
+  { name: 'Office Expenses', description: 'Stationery, refreshments, cleaning, and daily supplies', isDefault: true },
+  { name: 'Other Expenses', description: 'Miscellaneous operational expenses', isDefault: true },
+];
+
+/**
+ * Idempotently seeds default expense categories if they do not exist.
+ */
+export async function seedDefaultExpenseCategories(prisma: PrismaClient): Promise<void> {
+  for (const cat of DEFAULT_EXPENSE_CATEGORIES) {
+    const existing = await prisma.expenseCategory.findUnique({
+      where: { name: cat.name },
+    });
+    if (!existing) {
+      await prisma.expenseCategory.create({
+        data: {
+          name: cat.name,
+          description: cat.description,
+          isDefault: cat.isDefault,
+        },
+      });
+    }
+  }
+}
+
+/**
  * Runs full idempotent seed for Companies, Admin Users, Client Category Models, Baseline Metal Rates, and Sample Products.
  */
 export async function seedAll(prisma: PrismaClient): Promise<{
@@ -817,6 +870,8 @@ export async function seedAll(prisma: PrismaClient): Promise<{
   await seedInitialMetalRates(prisma);
   await seedSampleProducts(prisma);
   await seedSampleVendors(prisma);
+  await seedDefaultBillingUsers(prisma);
+  await seedDefaultExpenseCategories(prisma);
   return { companies, admins };
 }
 

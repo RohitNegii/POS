@@ -3,9 +3,11 @@ import { IPC_CHANNELS } from '../../shared/constants/ipcChannels';
 import type {
   BillDto,
   CreateBillRequest,
+  CustomerRecordDto,
   IpcResult,
   ListBillsFilter,
   ScannedProductDto,
+  UpdateBillRequest,
 } from '../../shared/types/ipc';
 import { billingService } from '../services/billingService';
 
@@ -58,7 +60,37 @@ export function registerBillingIpcHandlers(): void {
     }
   );
 
-  // 4. List past bills
+  // 4. Update bill & reconcile stock
+  ipcMain.removeHandler(IPC_CHANNELS.BILLING_UPDATE_BILL);
+  ipcMain.handle(
+    IPC_CHANNELS.BILLING_UPDATE_BILL,
+    async (_event, request: UpdateBillRequest): Promise<IpcResult<BillDto>> => {
+      try {
+        const bill = await billingService.updateBill(request.id, request);
+        return { success: true, data: bill };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update bill.';
+        return { success: false, error: message };
+      }
+    }
+  );
+
+  // 5. Cancel / void bill & return stock
+  ipcMain.removeHandler(IPC_CHANNELS.BILLING_CANCEL_BILL);
+  ipcMain.handle(
+    IPC_CHANNELS.BILLING_CANCEL_BILL,
+    async (_event, billId: string, reason?: string): Promise<IpcResult<BillDto>> => {
+      try {
+        const bill = await billingService.cancelBill(billId, reason);
+        return { success: true, data: bill };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to cancel bill.';
+        return { success: false, error: message };
+      }
+    }
+  );
+
+  // 6. List past bills
   ipcMain.removeHandler(IPC_CHANNELS.BILLING_LIST_BILLS);
   ipcMain.handle(
     IPC_CHANNELS.BILLING_LIST_BILLS,
@@ -83,6 +115,22 @@ export function registerBillingIpcHandlers(): void {
         return { success: true, data: bill };
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to retrieve bill.';
+        return { success: false, error: message };
+      }
+    }
+  );
+
+  // 7. List customer records grouped strictly by phone number
+  ipcMain.removeHandler(IPC_CHANNELS.BILLING_LIST_CUSTOMER_RECORDS);
+  ipcMain.handle(
+    IPC_CHANNELS.BILLING_LIST_CUSTOMER_RECORDS,
+    async (_event, search?: string): Promise<IpcResult<CustomerRecordDto[]>> => {
+      try {
+        const records = await billingService.listCustomerRecords(search);
+        return { success: true, data: records };
+      } catch (error) {
+        console.error('[IPC ERROR: billing:list-customer-records]', error);
+        const message = error instanceof Error ? error.message : 'Failed to retrieve customer records.';
         return { success: false, error: message };
       }
     }

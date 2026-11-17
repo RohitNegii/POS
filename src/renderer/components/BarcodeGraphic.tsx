@@ -74,14 +74,14 @@ const SIZE_PRESETS: Record<
     fontSize: 10.5,
     margin: 4,
   },
-  // BAR-CODING TECH® Jewellery Dumbbell Tag
+  // BAR-CODING TECH® Jewellery Rat-Tail Tag
   jewellery_100x13: {
     width: 0.8,
     height: 16,
     fontSize: 7,
     margin: 1,
   },
-  // 85 x 15 mm Jewellery Dumbbell Tag
+  // 85 x 15 mm Jewellery Rat-Tail Tag
   jewellery_85x15: {
     width: 0.8,
     height: 18,

@@ -4,7 +4,8 @@
 // to Electron's userData/app-data directory.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "windows"]
 }
 
 datasource db {
@@ -36,6 +37,9 @@ model Company {
   metalRates MetalRate[]
   vendors    Vendor[]
   purchases  Purchase[]
+  purchaseReturns PurchaseReturn[]
+  expenses   Expense[]
+  financialTransactions FinancialTransaction[]
 
   @@map("companies")
 }
@@ -188,6 +192,7 @@ model Bill {
   subtotal           Float      @default(0)
   discountPercentage Float      @default(0) @map("discount_percentage")
   discount           Float      @default(0)
+  taxPercentage      Float      @default(0) @map("tax_percentage")
   tax                Float      @default(0)
   totalAmount        Float      @map("total_amount")
   paymentMethod      String     @default("CASH") @map("payment_method") // 'CASH' | 'UPI' | 'CARD' | 'SPLIT'
@@ -245,6 +250,7 @@ model Vendor {
   company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   products      Product[]
   purchases     Purchase[]
+  purchaseReturns PurchaseReturn[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -276,6 +282,8 @@ model Purchase {
   paymentMethod   String         @default("CASH") @map("payment_method") // 'CASH' | 'ONLINE' | 'NO_PAYMENT'
   paymentStatus   String         @default("PAID") @map("payment_status") // 'PAID' | 'PARTIAL' | 'UNPAID'
   paymentDate     String?        @map("payment_date") // 'YYYY-MM-DD'
+  utr             String?        @map("utr")
+  description     String?        @map("description")
   notes           String?
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
@@ -283,6 +291,7 @@ model Purchase {
   company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   vendor          Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   items           PurchaseItem[]
+  returns         PurchaseReturn[]
 
   @@index([companyId])
   @@index([vendorId])
@@ -320,6 +329,7 @@ model PurchaseItem {
 
   purchase        Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
   product         Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  returnItems     PurchaseReturnItem[]
 
   @@index([purchaseId])
   @@index([productId])
@@ -327,3 +337,134 @@ model PurchaseItem {
   @@map("purchase_items")
 }
 
+/// Purchase Return / Debit Note to Vendor — records returned products, stock deduction, and vendor refund.
+model PurchaseReturn {
+  id              String               @id @default(uuid())
+  returnNumber    String               @unique @map("return_number") // e.g. PR-YYYYMMDD-XXXX
+  purchaseId      String               @map("purchase_id")
+  companyId       String               @map("company_id")
+  vendorId        String               @map("vendor_id")
+  returnDate      String               @map("return_date") // 'YYYY-MM-DD'
+  totalAmount     Float                @default(0) @map("total_amount")
+  refundType      String               @default("CASH") @map("refund_type") // 'CASH' | 'ONLINE' | 'BALANCE_DEDUCTION' | 'STORE_CREDIT'
+  refundAmount    Float                @default(0) @map("refund_amount")
+  reason          String?
+  notes           String?
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  purchase        Purchase             @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor          Vendor               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  items           PurchaseReturnItem[]
+
+  @@index([companyId])
+  @@index([vendorId])
+  @@index([purchaseId])
+  @@index([returnDate])
+  @@map("purchase_returns")
+}
+
+/// Line item for a Purchase Return.
+model PurchaseReturnItem {
+  id               String         @id @default(uuid())
+  purchaseReturnId String         @map("purchase_return_id")
+  purchaseItemId   String         @map("purchase_item_id")
+  productId        String?        @map("product_id")
+  productName      String         @map("product_name")
+  barcode          String
+  quantityReturned Float          @map("quantity_returned")
+  unitCost         Float          @map("unit_cost")
+  totalCost        Float          @map("total_cost")
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  purchaseItem     PurchaseItem   @relation(fields: [purchaseItemId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseReturnId])
+  @@index([purchaseItemId])
+  @@index([productId])
+  @@map("purchase_return_items")
+}
+
+/// Registered billing operators/users (employees) managed by Super Admin.
+/// Shared across companies for billing attribution and salary expense tracking.
+model BillingUser {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  expenses  Expense[]
+
+  @@map("billing_users")
+}
+
+
+
+
+/// Expense categories (e.g. Salary, Electricity, Rent, Maintenance, Conveyance, Internet, Office Expenses, Other Expenses).
+model ExpenseCategory {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  description String?
+  isDefault   Boolean   @default(false) @map("is_default")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  expenses    Expense[]
+
+  @@map("expense_categories")
+}
+
+/// Operational and administrative company expenses with automatic payment balance deduction.
+model Expense {
+  id            String    @id @default(uuid())
+  companyId     String    @map("company_id")
+  categoryId    String    @map("category_id")
+  employeeId    String?   @map("employee_id")
+  employeeName  String?   @map("employee_name")
+  amount        Float     @default(0)
+  paymentMethod String    @default("CASH") @map("payment_method") // 'CASH' | 'ONLINE'
+  expenseDate   String    @map("expense_date") // 'YYYY-MM-DD'
+  description   String?
+  receiptPath   String?   @map("receipt_path")
+  createdBy     String    @map("created_by") // e.g. 'Super Admin'
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category      ExpenseCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  employee      BillingUser?     @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  transactions  FinancialTransaction[]
+
+  @@index([companyId])
+  @@index([categoryId])
+  @@index([employeeId])
+  @@index([expenseDate])
+  @@index([paymentMethod])
+  @@map("expenses")
+}
+
+/// Auditable financial transaction ledger for company balance deductions and reversals.
+model FinancialTransaction {
+  id            String    @id @default(uuid())
+  companyId     String    @map("company_id")
+  type          String    @map("type") // 'EXPENSE_DEDUCTION' | 'EXPENSE_REVERSAL'
+  expenseId     String?   @map("expense_id")
+  paymentMethod String    @default("CASH") @map("payment_method") // 'CASH' | 'ONLINE'
+  amount        Float     @default(0)
+  balanceBefore Float     @default(0) @map("balance_before")
+  balanceAfter  Float     @default(0) @map("balance_after")
+  description   String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  expense       Expense?  @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([expenseId])
+  @@index([paymentMethod])
+  @@index([type])
+  @@map("financial_transactions")
+}

@@ -31,15 +31,28 @@ export async function initializeDatabase(): Promise<void> {
 
   // In packaged production Electron, ensure Prisma points to the unpacked query engine DLL
   if (app.isPackaged && process.resourcesPath) {
-    const candidates = [
-      path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '.prisma', 'client', 'query_engine-windows.dll.node'),
-      path.join(process.resourcesPath, 'node_modules', '.prisma', 'client', 'query_engine-windows.dll.node'),
+    const possibleNames = [
+      'query_engine-windows.dll.node',
+      'libquery_engine-windows.dll.node',
+      'query-engine-windows.dll.node',
+      'libquery_engine-darwin-arm64.dylib.node',
+      'libquery_engine-darwin.dylib.node',
     ];
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        process.env.PRISMA_QUERY_ENGINE_LIBRARY = candidate;
-        break;
+    const candidateDirs = [
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '.prisma', 'client'),
+      path.join(process.resourcesPath, 'node_modules', '.prisma', 'client'),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@prisma', 'client'),
+      path.join(process.resourcesPath, 'node_modules', '@prisma', 'client'),
+    ];
+    for (const dir of candidateDirs) {
+      for (const name of possibleNames) {
+        const candidate = path.join(dir, name);
+        if (fs.existsSync(candidate)) {
+          process.env.PRISMA_QUERY_ENGINE_LIBRARY = candidate;
+          break;
+        }
       }
+      if (process.env.PRISMA_QUERY_ENGINE_LIBRARY) break;
     }
   }
 
@@ -266,6 +279,7 @@ export async function initializeDatabase(): Promise<void> {
       "subtotal" REAL NOT NULL DEFAULT 0,
       "discount_percentage" REAL NOT NULL DEFAULT 0,
       "discount" REAL NOT NULL DEFAULT 0,
+      "tax_percentage" REAL NOT NULL DEFAULT 0,
       "tax" REAL NOT NULL DEFAULT 0,
       "total_amount" REAL NOT NULL DEFAULT 0,
       "payment_method" TEXT NOT NULL DEFAULT 'CASH',
@@ -279,14 +293,19 @@ export async function initializeDatabase(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS "bills_invoice_number_key" ON "bills"("invoice_number");
   `);
 
-  // Ensure discount_percentage exists if bills table was created earlier
+  // Ensure discount_percentage and tax_percentage exist if bills table was created earlier
   try {
     const billCols = await client.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("bills");');
-    if (Array.isArray(billCols) && !billCols.some((c) => c.name === 'discount_percentage')) {
-      await client.$executeRawUnsafe('ALTER TABLE "bills" ADD COLUMN "discount_percentage" REAL NOT NULL DEFAULT 0;');
+    if (Array.isArray(billCols)) {
+      if (!billCols.some((c) => c.name === 'discount_percentage')) {
+        await client.$executeRawUnsafe('ALTER TABLE "bills" ADD COLUMN "discount_percentage" REAL NOT NULL DEFAULT 0;');
+      }
+      if (!billCols.some((c) => c.name === 'tax_percentage')) {
+        await client.$executeRawUnsafe('ALTER TABLE "bills" ADD COLUMN "tax_percentage" REAL NOT NULL DEFAULT 0;');
+      }
     }
   } catch (err) {
-    console.warn('[DB] Notice during bills discount_percentage check:', err);
+    console.warn('[DB] Notice during bills discount_percentage/tax_percentage check:', err);
   }
 
   await client.$executeRawUnsafe(`
@@ -407,6 +426,9 @@ export async function initializeDatabase(): Promise<void> {
       "balance_amount" REAL NOT NULL DEFAULT 0,
       "payment_method" TEXT NOT NULL DEFAULT 'CASH',
       "payment_status" TEXT NOT NULL DEFAULT 'PAID',
+      "payment_date" TEXT,
+      "utr" TEXT,
+      "description" TEXT,
       "notes" TEXT,
       "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -472,6 +494,12 @@ export async function initializeDatabase(): Promise<void> {
       }
       if (!pCols.some((c) => c.name === 'payment_date')) {
         await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "payment_date" TEXT;');
+      }
+      if (!pCols.some((c) => c.name === 'utr')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "utr" TEXT;');
+      }
+      if (!pCols.some((c) => c.name === 'description')) {
+        await client.$executeRawUnsafe('ALTER TABLE "purchases" ADD COLUMN "description" TEXT;');
       }
     }
 
@@ -608,6 +636,210 @@ export async function initializeDatabase(): Promise<void> {
   `);
   await client.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "purchase_items_barcode_idx" ON "purchase_items"("barcode");
+  `);
+
+  // Idempotent bootstrap for purchase_returns table
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "purchase_returns" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "return_number" TEXT NOT NULL,
+      "purchase_id" TEXT NOT NULL,
+      "company_id" TEXT NOT NULL,
+      "vendor_id" TEXT NOT NULL,
+      "return_date" TEXT NOT NULL,
+      "total_amount" REAL NOT NULL DEFAULT 0,
+      "refund_type" TEXT NOT NULL DEFAULT 'CASH',
+      "refund_amount" REAL NOT NULL DEFAULT 0,
+      "reason" TEXT,
+      "notes" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "purchase_returns_purchase_id_fkey" FOREIGN KEY ("purchase_id") REFERENCES "purchases" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "purchase_returns_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "purchase_returns_vendor_id_fkey" FOREIGN KEY ("vendor_id") REFERENCES "vendors" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "purchase_returns_return_number_key" ON "purchase_returns"("return_number");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_returns_company_id_idx" ON "purchase_returns"("company_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_returns_vendor_id_idx" ON "purchase_returns"("vendor_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_returns_purchase_id_idx" ON "purchase_returns"("purchase_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_returns_return_date_idx" ON "purchase_returns"("return_date");
+  `);
+
+  // Idempotent bootstrap for purchase_return_items table
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "purchase_return_items" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "purchase_return_id" TEXT NOT NULL,
+      "purchase_item_id" TEXT NOT NULL,
+      "product_id" TEXT,
+      "product_name" TEXT NOT NULL,
+      "barcode" TEXT NOT NULL,
+      "quantity_returned" REAL NOT NULL DEFAULT 0,
+      "unit_cost" REAL NOT NULL DEFAULT 0,
+      "total_cost" REAL NOT NULL DEFAULT 0,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "purchase_return_items_purchase_return_id_fkey" FOREIGN KEY ("purchase_return_id") REFERENCES "purchase_returns" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "purchase_return_items_purchase_item_id_fkey" FOREIGN KEY ("purchase_item_id") REFERENCES "purchase_items" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_return_items_purchase_return_id_idx" ON "purchase_return_items"("purchase_return_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_return_items_purchase_item_id_idx" ON "purchase_return_items"("purchase_item_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "purchase_return_items_product_id_idx" ON "purchase_return_items"("product_id");
+  `);
+
+  // Idempotent bootstrap for billing_users table (Registered Billing Users managed by Super Admin)
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "billing_users" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "billing_users_name_key" ON "billing_users"("name");
+  `);
+
+  // Idempotent bootstrap for expense_categories table
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "expense_categories" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "name" TEXT NOT NULL,
+      "description" TEXT,
+      "is_default" BOOLEAN NOT NULL DEFAULT 0,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "expense_categories_name_key" ON "expense_categories"("name");
+  `);
+
+  // Migrate expenses table foreign key if it previously referenced the old employees table
+  try {
+    const tableSql = await client.$queryRawUnsafe<Array<{ sql: string }>>(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='expenses';`
+    );
+    if (tableSql && tableSql[0] && tableSql[0].sql && tableSql[0].sql.includes('REFERENCES "employees"')) {
+      await client.$executeRawUnsafe('PRAGMA foreign_keys = OFF;');
+      await client.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "expenses_new" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "company_id" TEXT NOT NULL,
+          "category_id" TEXT NOT NULL,
+          "employee_id" TEXT,
+          "employee_name" TEXT,
+          "amount" REAL NOT NULL DEFAULT 0,
+          "payment_method" TEXT NOT NULL DEFAULT 'CASH',
+          "expense_date" TEXT NOT NULL,
+          "description" TEXT,
+          "receipt_path" TEXT,
+          "created_by" TEXT NOT NULL,
+          "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "expenses_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          CONSTRAINT "expenses_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "expense_categories" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          CONSTRAINT "expenses_employee_id_fkey" FOREIGN KEY ("employee_id") REFERENCES "billing_users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+        );
+      `);
+      await client.$executeRawUnsafe(`
+        INSERT INTO "expenses_new" ("id", "company_id", "category_id", "employee_id", "employee_name", "amount", "payment_method", "expense_date", "description", "receipt_path", "created_by", "created_at", "updated_at")
+        SELECT "id", "company_id", "category_id", NULL, "employee_name", "amount", "payment_method", "expense_date", "description", "receipt_path", "created_by", "created_at", "updated_at"
+        FROM "expenses";
+      `);
+      await client.$executeRawUnsafe('DROP TABLE "expenses";');
+      await client.$executeRawUnsafe('ALTER TABLE "expenses_new" RENAME TO "expenses";');
+      await client.$executeRawUnsafe('PRAGMA foreign_keys = ON;');
+    }
+  } catch (err) {
+    console.warn('[DB] Notice during expenses foreign key migration:', err);
+  }
+
+  // Drop redundant employees table if exists, as billing_users represent the staff/employees
+  await client.$executeRawUnsafe(`
+    DROP TABLE IF EXISTS "employees";
+  `);
+
+  // Idempotent bootstrap for expenses table
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "expenses" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "company_id" TEXT NOT NULL,
+      "category_id" TEXT NOT NULL,
+      "employee_id" TEXT,
+      "employee_name" TEXT,
+      "amount" REAL NOT NULL DEFAULT 0,
+      "payment_method" TEXT NOT NULL DEFAULT 'CASH',
+      "expense_date" TEXT NOT NULL,
+      "description" TEXT,
+      "receipt_path" TEXT,
+      "created_by" TEXT NOT NULL,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "expenses_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "expenses_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "expense_categories" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "expenses_employee_id_fkey" FOREIGN KEY ("employee_id") REFERENCES "billing_users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "expenses_company_id_idx" ON "expenses"("company_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "expenses_category_id_idx" ON "expenses"("category_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "expenses_employee_id_idx" ON "expenses"("employee_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "expenses_expense_date_idx" ON "expenses"("expense_date");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "expenses_payment_method_idx" ON "expenses"("payment_method");
+  `);
+
+  // Idempotent bootstrap for financial_transactions table
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "financial_transactions" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "company_id" TEXT NOT NULL,
+      "type" TEXT NOT NULL,
+      "expense_id" TEXT,
+      "payment_method" TEXT NOT NULL DEFAULT 'CASH',
+      "amount" REAL NOT NULL DEFAULT 0,
+      "balance_before" REAL NOT NULL DEFAULT 0,
+      "balance_after" REAL NOT NULL DEFAULT 0,
+      "description" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "financial_transactions_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "financial_transactions_expense_id_fkey" FOREIGN KEY ("expense_id") REFERENCES "expenses" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "financial_transactions_company_id_idx" ON "financial_transactions"("company_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "financial_transactions_expense_id_idx" ON "financial_transactions"("expense_id");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "financial_transactions_payment_method_idx" ON "financial_transactions"("payment_method");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "financial_transactions_type_idx" ON "financial_transactions"("type");
   `);
 
   // Ensure fixed system companies and development admin users exist idempotently

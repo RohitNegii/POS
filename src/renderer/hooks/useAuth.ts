@@ -90,6 +90,9 @@ export function useAuth(): UseAuthReturn {
     try {
       await ipcClient.logout();
     } finally {
+      try {
+        localStorage.removeItem('pos_active_operator_id');
+      } catch {}
       setSession(null);
       setLoggingOut(false);
     }
