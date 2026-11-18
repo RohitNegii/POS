@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   SYSTEM_GET_STATUS: 'system:get-status',
+  SYSTEM_GET_PRINTERS: 'system:get-printers',
   DATABASE_PING: 'database:ping',
   AUTH_LOGIN: 'auth:login',
   AUTH_LOGOUT: 'auth:logout',

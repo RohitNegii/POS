@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import type { AuthSessionPayload, ProductDto } from '../../shared/types/ipc';
+import type { AuthSessionPayload, ProductDto, PrinterInfo } from '../../shared/types/ipc';
 import { BarcodeGraphic, BarcodePrintSize } from './BarcodeGraphic';
 import { generateActualPurchasePriceCode } from '../../shared/utils/purchaseCode';
 import { useToast } from '../context/ToastContext';
+import { ipcClient } from '../services/ipcClient';
 
 interface BarcodePrintModalProps {
   product: ProductDto | null;
@@ -23,6 +24,8 @@ export interface SizeOption {
   useCase: string;
   previewWidthPx: number;
   previewHeightPx: number;
+  defaultBarcodeHeight: number;
+  defaultBarcodeWidth: number;
   isJewellery?: boolean;
 }
 
@@ -34,9 +37,11 @@ const SIZE_OPTIONS: SizeOption[] = [
     heightMm: 25,
     dimensionsMm: '50 × 25 mm',
     dimensionsInches: '2.0" × 1.0"',
-    useCase: 'Most common standard thermal barcode sticker roll for retail POS & price labeling',
+    useCase: 'Most common thermal barcode sticker roll for retail POS & price labeling',
     previewWidthPx: 260,
     previewHeightPx: 130,
+    defaultBarcodeHeight: 24,
+    defaultBarcodeWidth: 1.0,
   },
   {
     id: 'retail_50x35',
@@ -48,6 +53,8 @@ const SIZE_OPTIONS: SizeOption[] = [
     useCase: 'Standard price tags with extra vertical space for multi-line details',
     previewWidthPx: 260,
     previewHeightPx: 182,
+    defaultBarcodeHeight: 32,
+    defaultBarcodeWidth: 1.15,
   },
   {
     id: 'compact_50x30',
@@ -59,6 +66,8 @@ const SIZE_OPTIONS: SizeOption[] = [
     useCase: 'Compact retail packaging, bottles, and boxes',
     previewWidthPx: 260,
     previewHeightPx: 156,
+    defaultBarcodeHeight: 28,
+    defaultBarcodeWidth: 1.05,
   },
   {
     id: 'square_50x50',
@@ -70,6 +79,8 @@ const SIZE_OPTIONS: SizeOption[] = [
     useCase: 'Square gift boxes, jars, décor, and garment tags',
     previewWidthPx: 220,
     previewHeightPx: 220,
+    defaultBarcodeHeight: 40,
+    defaultBarcodeWidth: 1.25,
   },
   {
     id: 'small_38x25',
@@ -81,6 +92,8 @@ const SIZE_OPTIONS: SizeOption[] = [
     useCase: 'Small jewellery boxes, cosmetics, pouch tags, small items',
     previewWidthPx: 240,
     previewHeightPx: 158,
+    defaultBarcodeHeight: 20,
+    defaultBarcodeWidth: 0.85,
   },
   {
     id: 'large_60x40',
@@ -92,6 +105,8 @@ const SIZE_OPTIONS: SizeOption[] = [
     useCase: 'Large price tags, boxed items, cartons, shelf labels',
     previewWidthPx: 270,
     previewHeightPx: 180,
+    defaultBarcodeHeight: 42,
+    defaultBarcodeWidth: 1.3,
   },
   {
     id: 'jewellery_85x15',
@@ -100,9 +115,11 @@ const SIZE_OPTIONS: SizeOption[] = [
     heightMm: 15,
     dimensionsMm: '85 × 15 mm (Print: 55 × 15 mm)',
     dimensionsInches: '3.35" × 0.59"',
-    useCase: 'Jewellery price tag with 55mm printable head on left (Name, Purity/Wt, MC, Barcode) and 30mm tail loop on right',
+    useCase: 'Jewellery price tag with 55mm printable head on left and 30mm tail loop on right',
     previewWidthPx: 420,
     previewHeightPx: 80,
+    defaultBarcodeHeight: 18,
+    defaultBarcodeWidth: 0.8,
     isJewellery: true,
   },
   {
@@ -112,9 +129,11 @@ const SIZE_OPTIONS: SizeOption[] = [
     heightMm: 13,
     dimensionsMm: '100 × 13 mm (Print: 55 × 13 mm)',
     dimensionsInches: '3.94" × 0.51"',
-    useCase: 'Polyester price stickers with 55mm printable head on left (Name, Purity/Wt, MC, Barcode) and 45mm non-gum tail loop on right',
+    useCase: 'Polyester price stickers with 55mm printable head on left and 45mm non-gum tail loop on right',
     previewWidthPx: 440,
     previewHeightPx: 80,
+    defaultBarcodeHeight: 16,
+    defaultBarcodeWidth: 0.8,
     isJewellery: true,
   },
   {
@@ -127,10 +146,12 @@ const SIZE_OPTIONS: SizeOption[] = [
     useCase: 'Enter your exact physical roll sticker measurements in millimeters',
     previewWidthPx: 260,
     previewHeightPx: 130,
+    defaultBarcodeHeight: 24,
+    defaultBarcodeWidth: 1.0,
   },
 ];
 
-const PREFERENCE_KEY = 'pos_barcode_label_preferences_v2';
+const PREFERENCE_KEY = 'pos_barcode_label_preferences_v3';
 
 export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
   product,
@@ -140,6 +161,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
   initialCopies,
 }) => {
   const { showError, showSuccess } = useToast();
+
   // Load saved preferences with safe fallbacks
   const savedPrefs = useMemo(() => {
     try {
@@ -161,9 +183,17 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     });
   }, [product]);
 
+  // 1. Printer selection state
+  const [printers, setPrinters] = useState<PrinterInfo[]>([]);
+  const [loadingPrinters, setLoadingPrinters] = useState<boolean>(false);
+  const [selectedPrinter, setSelectedPrinter] = useState<string>(() => savedPrefs?.selectedPrinter || '');
+  const [directPrint, setDirectPrint] = useState<boolean>(() =>
+    typeof savedPrefs?.directPrint === 'boolean' ? savedPrefs.directPrint : true
+  );
+
+  // 2. Dimensions & Size state
   const [selectedSize, setSelectedSize] = useState<BarcodePrintSize>(() => {
     if (savedPrefs?.selectedSize) {
-      // Map old aliases if present
       if (savedPrefs.selectedSize === 'small') return 'small_38x25';
       if (savedPrefs.selectedSize === 'medium') return 'retail_50x35';
       if (savedPrefs.selectedSize === 'large' || savedPrefs.selectedSize === 'large_75x50') return 'large_60x40';
@@ -175,8 +205,75 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
   const [customWidthMm, setCustomWidthMm] = useState<number>(savedPrefs?.customWidthMm || 50);
   const [customHeightMm, setCustomHeightMm] = useState<number>(savedPrefs?.customHeightMm || 25);
   const [copies, setCopies] = useState<number>(() => {
-    return initialCopies && initialCopies > 0 ? Math.round(initialCopies) : 1;
+    return initialCopies && initialCopies > 0 ? Math.round(initialCopies) : (savedPrefs?.copies || 1);
   });
+
+  // 3. Barcode appearance state
+  const [barcodeHeight, setBarcodeHeight] = useState<number>(() => savedPrefs?.barcodeHeight || 24);
+  const [barcodeWidthScale, setBarcodeWidthScale] = useState<number>(() => savedPrefs?.barcodeWidthScale || 1.0);
+
+  // 4. Typography & Spacing state
+  const [fontSizeScale, setFontSizeScale] = useState<number>(() => savedPrefs?.fontSizeScale || 100);
+  const [horizontalPaddingMm, setHorizontalPaddingMm] = useState<number>(() =>
+    typeof savedPrefs?.horizontalPaddingMm === 'number' ? savedPrefs.horizontalPaddingMm : 1.5
+  );
+  const [verticalPaddingMm, setVerticalPaddingMm] = useState<number>(() =>
+    typeof savedPrefs?.verticalPaddingMm === 'number' ? savedPrefs.verticalPaddingMm : 1.0
+  );
+  const [horizontalOffsetMm, setHorizontalOffsetMm] = useState<number>(() =>
+    typeof savedPrefs?.horizontalOffsetMm === 'number' ? savedPrefs.horizontalOffsetMm : 0
+  );
+
+  // 5. Visibility toggles
+  const [showProductName, setShowProductName] = useState<boolean>(() =>
+    typeof savedPrefs?.showProductName === 'boolean' ? savedPrefs.showProductName : true
+  );
+  const [showCategory, setShowCategory] = useState<boolean>(() =>
+    typeof savedPrefs?.showCategory === 'boolean' ? savedPrefs.showCategory : false
+  );
+  const [showPurityWeight, setShowPurityWeight] = useState<boolean>(() =>
+    typeof savedPrefs?.showPurityWeight === 'boolean' ? savedPrefs.showPurityWeight : true
+  );
+  const [showPrice, setShowPrice] = useState<boolean>(() =>
+    typeof savedPrefs?.showPrice === 'boolean' ? savedPrefs.showPrice : true
+  );
+  const [showPurchaseCode, setShowPurchaseCode] = useState<boolean>(() =>
+    typeof savedPrefs?.showPurchaseCode === 'boolean' ? savedPrefs.showPurchaseCode : true
+  );
+  const [showBarcodeValue, setShowBarcodeValue] = useState<boolean>(() =>
+    typeof savedPrefs?.showBarcodeValue === 'boolean' ? savedPrefs.showBarcodeValue : true
+  );
+
+  // 6. Preview controls
+  const [previewMode, setPreviewMode] = useState<'single' | 'roll'>('single');
+  const [previewZoom, setPreviewZoom] = useState<number>(100);
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+
+  // Fetch installed system printers on open
+  const fetchPrinters = async () => {
+    setLoadingPrinters(true);
+    try {
+      const res = await ipcClient.getPrinters();
+      if (res.success && res.data) {
+        setPrinters(res.data);
+        setSelectedPrinter((current) => {
+          if (current && res.data.some((p) => p.name === current)) return current;
+          const def = res.data.find((p) => p.isDefault);
+          return def ? def.name : res.data[0]?.name || '';
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to load system printers:', err);
+    } finally {
+      setLoadingPrinters(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      void fetchPrinters();
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen && initialCopies && initialCopies > 0) {
@@ -184,33 +281,79 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     }
   }, [isOpen, initialCopies, product?.id]);
 
-  // Standard label configuration defaults
-  const showProductName = true;
-  const showCategory = false;
-  const showPurityWeight = true;
-  const showPrice = true;
-  const showPurchaseCode = true;
-  const showBarcodeValue = true;
-  const horizontalPaddingMm = 1.5;
-  const verticalPaddingMm = 1.0;
-  const horizontalOffsetMm = 0;
-  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  // Handle preset size changes and adapt default barcode dimensions
+  const handleSelectSize = (sizeId: BarcodePrintSize) => {
+    setSelectedSize(sizeId);
+    const opt = SIZE_OPTIONS.find((s) => s.id === sizeId);
+    if (!opt) return;
 
-  // Persist preference updates
+    setBarcodeHeight(opt.defaultBarcodeHeight);
+    setBarcodeWidthScale(opt.defaultBarcodeWidth);
+
+    if (opt.isJewellery) {
+      setVerticalPaddingMm(0);
+      setHorizontalPaddingMm(0);
+    } else if (sizeId === 'small_38x25') {
+      setVerticalPaddingMm(0.8);
+      setHorizontalPaddingMm(1.0);
+    } else if (sizeId === 'std_50x25') {
+      setVerticalPaddingMm(1.0);
+      setHorizontalPaddingMm(1.5);
+    } else {
+      setVerticalPaddingMm(1.5);
+      setHorizontalPaddingMm(2.0);
+    }
+  };
+
+  // Persist preference updates to localStorage
   useEffect(() => {
     try {
       localStorage.setItem(
         PREFERENCE_KEY,
         JSON.stringify({
+          selectedPrinter,
+          directPrint,
           selectedSize,
           customWidthMm,
           customHeightMm,
+          copies,
+          barcodeHeight,
+          barcodeWidthScale,
+          fontSizeScale,
+          horizontalPaddingMm,
+          verticalPaddingMm,
+          horizontalOffsetMm,
+          showProductName,
+          showCategory,
+          showPurityWeight,
+          showPrice,
+          showPurchaseCode,
+          showBarcodeValue,
         })
       );
     } catch {
       // Ignore localStorage write failures
     }
-  }, [selectedSize, customWidthMm, customHeightMm]);
+  }, [
+    selectedPrinter,
+    directPrint,
+    selectedSize,
+    customWidthMm,
+    customHeightMm,
+    copies,
+    barcodeHeight,
+    barcodeWidthScale,
+    fontSizeScale,
+    horizontalPaddingMm,
+    verticalPaddingMm,
+    horizontalOffsetMm,
+    showProductName,
+    showCategory,
+    showPurityWeight,
+    showPrice,
+    showPurchaseCode,
+    showBarcodeValue,
+  ]);
 
   // Ensure cleanup on modal close / unmount
   useEffect(() => {
@@ -243,7 +386,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 
   const purityWeightDisplay = [purityText, weightText].filter(Boolean).join(' • ');
 
-  // Extract selling making charges per gram (to be offered to customers in down left corner)
+  // Extract selling making charges per gram (for jewellery down left corner)
   const makingChargeFv = product.fieldValues?.find((fv) => {
     const key = fv.categoryField?.fieldKey?.toLowerCase() || '';
     const name = fv.categoryField?.name?.toLowerCase() || '';
@@ -296,24 +439,23 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     SIZE_OPTIONS.find((opt) => opt.id === selectedSize) || SIZE_OPTIONS[0];
 
   const effectiveWidthMm =
-    selectedSize === 'custom' ? Math.max(20, customWidthMm || 50) : activeOption.widthMm;
+    selectedSize === 'custom' ? Math.max(15, customWidthMm || 50) : activeOption.widthMm;
   const effectiveHeightMm =
     selectedSize === 'custom' ? Math.max(10, customHeightMm || 25) : activeOption.heightMm;
 
-  // Perform physical label printing via clean offscreen window (Zero backdrop / Zero black leak)
+  // Physical label printing execution via clean offscreen window
   const executePrint = async () => {
+    if (isPrinting) return;
     setIsPrinting(true);
     document.body.classList.add('printing-barcode');
 
-    // Allow React state update (copiesToPrint) to render into DOM,
-    // then wait for JsBarcode SVG effects to fire and compute viewBox
     setTimeout(async () => {
       try {
         const slip = document.getElementById('printable-barcode-slip');
 
-        // Ensure JsBarcode useEffect has executed and populated all SVGs with rect/text elements
+        // Ensure JsBarcode SVG effects have fired and populated all SVGs with rect/text elements
         let attempts = 0;
-        while (attempts < 10) {
+        while (attempts < 12) {
           const svgs = slip?.querySelectorAll('svg');
           const allRendered =
             svgs && svgs.length > 0 && Array.from(svgs).every((s) => s.children.length > 0);
@@ -323,7 +465,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
         }
 
         const rawHtml = slip ? slip.innerHTML : '';
-        // Strip duplicate <style> tag from portal markup so head stylesheet has clean precedence
         const slipHtml = rawHtml.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').trim();
 
         const fullHtml = `
@@ -331,7 +472,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Barcode Labels</title>
+  <title>Barcode Labels - ${product.name}</title>
   <style>
     @page {
       size: ${effectiveWidthMm}mm ${effectiveHeightMm}mm;
@@ -354,48 +495,21 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     * {
       box-sizing: border-box !important;
     }
-
-    /* Layout & Display Utilities */
     .flex { display: flex !important; }
-    .inline-flex { display: inline-flex !important; }
     .flex-col { flex-direction: column !important; }
     .flex-row { flex-direction: row !important; }
-    .flex-1 { flex: 1 1 0% !important; }
-    .shrink-0 { flex-shrink: 0 !important; }
     .items-center { align-items: center !important; }
     .items-stretch { align-items: stretch !important; }
     .justify-between { justify-content: space-between !important; }
-    .justify-around { justify-content: space-around !important; }
     .justify-center { justify-content: center !important; }
     .justify-start { justify-content: flex-start !important; }
-    .block { display: block !important; }
-    .inline-block { display: inline-block !important; }
-    .box-border { box-sizing: border-box !important; }
-    .overflow-hidden { overflow: hidden !important; }
-
-    /* Sizing Utilities */
     .w-full { width: 100% !important; }
     .h-full { height: 100% !important; }
-    .max-w-full { max-width: 100% !important; }
-    .max-h-full { max-height: 100% !important; }
-    .h-auto { height: auto !important; }
-    .min-h-0 { min-height: 0 !important; }
-
-    /* Typography Utilities */
-    .text-left { text-align: left !important; }
-    .text-right { text-align: right !important; }
-    .text-center { text-align: center !important; }
     .truncate { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
-    .leading-none { line-height: 1 !important; }
-    .leading-tight { line-height: 1.15 !important; }
     .font-mono { font-family: monospace !important; }
     .font-bold { font-weight: bold !important; }
-    .font-semibold { font-weight: 600 !important; }
-    .tracking-wider { letter-spacing: 0.05em !important; }
-    .tracking-tight { letter-spacing: -0.025em !important; }
     .text-black { color: #000000 !important; }
 
-    /* Barcode SVG scaling - respects container height and width */
     svg {
       width: 100% !important;
       max-width: 100% !important;
@@ -405,7 +519,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
       margin: 0 auto !important;
     }
 
-    /* Standard thermal label page */
     .barcode-label-page {
       width: ${effectiveWidthMm}mm !important;
       height: ${effectiveHeightMm}mm !important;
@@ -429,7 +542,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
       transform: ${horizontalOffsetMm ? `translateX(${horizontalOffsetMm}mm)` : 'none'} !important;
     }
 
-    /* Jewellery rat-tail tag page: Exactly 100mm x 13mm matching @page size and physical roll */
     .barcode-label-page.barcode-label-jewellery {
       width: 100mm !important;
       height: 13mm !important;
@@ -445,7 +557,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
       transform: ${horizontalOffsetMm ? `translateX(${horizontalOffsetMm}mm)` : 'none'} !important;
     }
 
-    /* Jewellery rat-tail tag page: Exactly 85mm x 15mm matching @page size and physical roll */
     .barcode-label-page.barcode-label-jewellery-85x15 {
       width: 85mm !important;
       height: 15mm !important;
@@ -473,43 +584,56 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 </html>
         `;
 
-        if (window.posApi?.printBarcode) {
-          const res = await window.posApi.printBarcode({
-            html: fullHtml,
-            widthMm: effectiveWidthMm,
-            heightMm: effectiveHeightMm,
-          });
-          if (res && !res.success) {
-            showError(res.error || 'Failed to print barcode label.');
-          } else {
-            showSuccess('Barcode label sent to printer.');
-          }
+        const printRes = await ipcClient.printBarcode({
+          html: fullHtml,
+          widthMm: effectiveWidthMm,
+          heightMm: effectiveHeightMm,
+          deviceName: selectedPrinter || undefined,
+          copies: 1, // Full count is generated as distinct pages in the continuous HTML stream
+          silent: directPrint && Boolean(selectedPrinter),
+        });
+
+        if (!printRes.success) {
+          showError(printRes.error || 'Failed to print barcode label.');
+        } else if (printRes.data?.printed === false) {
+          // Dialog cancelled
         } else {
-          window.print();
+          showSuccess(
+            selectedPrinter
+              ? `Printed ${copies} ${copies > 1 ? 'labels' : 'label'} on "${selectedPrinter}"`
+              : `Barcode ${copies > 1 ? 'labels' : 'label'} sent to printer.`
+          );
         }
-      } catch (err) {
-        console.error('Barcode printing failed:', err);
-        showError(err instanceof Error ? err.message : 'Barcode printing failed.');
+      } catch (err: any) {
+        showError(err.message || 'Error occurred while printing.');
       } finally {
         setTimeout(() => {
           document.body.classList.remove('printing-barcode');
           setIsPrinting(false);
-        }, 800);
+        }, 600);
       }
     }, 250);
   };
 
   const copiesToPrint = copies;
 
+  // Single sticker visual preview dimensions
+  const previewCanvasWidthPx = Math.round(
+    Math.min(480, Math.max(220, effectiveWidthMm * 4.6)) * (previewZoom / 100)
+  );
+  const previewCanvasHeightPx = Math.round(
+    Math.min(300, Math.max(90, effectiveHeightMm * 4.6)) * (previewZoom / 100)
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 p-4 backdrop-blur-sm select-text print:hidden">
-      <div className="flex h-[92vh] max-h-[860px] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-cream-300 bg-white shadow-2xl">
+      <div className="flex h-[94vh] max-h-[890px] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-cream-300 bg-white shadow-2xl">
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-cream-200 px-6 py-4 bg-cream-50/70">
+        <div className="flex items-center justify-between border-b border-cream-200 px-6 py-3.5 bg-cream-50/80">
           <div>
             <div className="flex items-center gap-3">
               <h2 className="text-base font-bold text-stone-900">
-                Print Barcode Labels
+                Barcode Label Studio &amp; Printing
               </h2>
               <span className="rounded-full border border-amber-300/80 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
                 {product.name}
@@ -519,12 +643,12 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               </span>
               {isGoldSilverJewellery && (
                 <span className="rounded-full border border-amber-400 bg-amber-100/90 px-2 py-0.5 text-[10px] font-bold text-amber-900 shadow-2xs">
-                  Gold/Silver (Live Metal Rate)
+                  Gold/Silver (Dynamic Rate)
                 </span>
               )}
             </div>
-            <p className="mt-1 text-xs text-stone-500">
-              Configured for thermal roll barcode printers (TSC, Xprinter, Zebra, TVS, Godex) with 1:1 sticker centering.
+            <p className="mt-0.5 text-xs text-stone-500">
+              Live design preview &amp; native Electron hardware printer output with zero margins.
             </p>
           </div>
 
@@ -543,57 +667,152 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
         {/* Modal Body */}
         <div className="flex flex-1 overflow-hidden">
           {/* Left Settings Panel */}
-          <div className="w-full md:w-1/2 overflow-y-auto p-6 space-y-5 border-r border-cream-200">
-            {/* Quick Roll Size Notice */}
-            <div className="rounded-xl border border-amber-300/90 bg-amber-50/70 p-3.5">
-              <div className="flex items-start gap-2.5">
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-600 text-white font-bold text-xs">
-                  {isGoldSilverJewellery ? '⚖' : '✓'}
+          <div className="w-full md:w-[48%] overflow-y-auto p-5 space-y-4 border-r border-cream-200">
+            {/* 1. Printer & Copies Configuration Card */}
+            <div className="rounded-xl border border-amber-400/80 bg-amber-50/60 p-3.5 space-y-3 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  </span>
+                  <label className="text-xs font-bold text-amber-950 uppercase tracking-wide">
+                    Destination Printer (Windows)
+                  </label>
                 </div>
-                <div className="text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-amber-950">
-                      {isGoldSilverJewellery ? 'Gold & Silver Jewellery Barcode' : 'Auto-Centered Thermal Layout'}
-                    </span>
-                    <span className="rounded bg-amber-200/80 px-1.5 py-0.2 text-[9px] font-bold text-amber-900">
-                      {isGoldSilverJewellery ? 'Dynamic Daily Rate' : 'Zero Margin Roll'}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-stone-600 text-[11px] leading-relaxed">
-                    {isGoldSilverJewellery ? (
-                      <>
-                        Selling price is <strong>omitted from barcode</strong> because this product is calculated dynamically using today's gold/silver market rate at billing. Purity &amp; weight are printed on the label.
-                      </>
-                    ) : (
-                      <>
-                        Labels automatically align in the center of each physical sticker. Rate is printed on the <strong className="text-stone-900">left</strong> and price code on the <strong className="text-stone-900">right</strong> with edge-to-edge optical contrast.
-                      </>
-                    )}
-                  </p>
+                <button
+                  type="button"
+                  onClick={fetchPrinters}
+                  disabled={loadingPrinters}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 hover:text-amber-950 transition"
+                  title="Refresh installed printers"
+                >
+                  <svg
+                    className={`h-3.5 w-3.5 ${loadingPrinters ? 'animate-spin' : ''}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  <span>{loadingPrinters ? 'Detecting...' : 'Refresh'}</span>
+                </button>
+              </div>
+
+              {/* Printer Dropdown */}
+              <div className="relative">
+                <select
+                  value={selectedPrinter}
+                  onChange={(e) => setSelectedPrinter(e.target.value)}
+                  className="w-full rounded-lg border border-amber-300 bg-white py-2 pl-3 pr-8 text-xs font-semibold text-stone-900 shadow-2xs focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                >
+                  {printers.length === 0 ? (
+                    <option value="">Default Windows Printer (System Dialog)</option>
+                  ) : (
+                    printers.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.displayName || p.name} {p.isDefault ? '★ [Default]' : ''}
+                      </option>
+                    ))
+                  )}
+                  <option value="">[Prompt Windows System Print Dialog]</option>
+                </select>
+              </div>
+
+              {/* Direct Print Toggle */}
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={directPrint}
+                    onChange={(e) => setDirectPrint(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded text-amber-600 border-amber-300 focus:ring-amber-500"
+                  />
+                  <span className="text-[11px] font-medium text-amber-950">
+                    Direct 1-Click Print (Thermal Roll Auto Spooling)
+                  </span>
+                </label>
+                <span className="text-[10px] text-amber-800 font-mono">
+                  {directPrint ? 'Direct' : 'Dialog'}
+                </span>
+              </div>
+
+              {/* Copies Stepper */}
+              <div className="flex items-center justify-between border-t border-amber-200/80 pt-2.5">
+                <div>
+                  <span className="text-xs font-bold text-amber-950">Print Copies</span>
+                  <p className="text-[10px] text-stone-600">Total stickers to print</p>
                 </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCopies(Math.max(1, copies - 1))}
+                    className="h-7 w-7 rounded bg-white border border-amber-300 text-stone-800 hover:bg-amber-100/60 text-xs font-bold flex items-center justify-center shadow-2xs"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={2000}
+                    value={copies}
+                    onChange={(e) => setCopies(Math.max(1, Math.min(2000, parseInt(e.target.value, 10) || 1)))}
+                    className="h-7 w-14 rounded border border-amber-300 bg-white text-center text-xs font-bold text-stone-900 focus:border-amber-600 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCopies(Math.min(2000, copies + 1))}
+                    className="h-7 w-7 rounded bg-white border border-amber-300 text-stone-800 hover:bg-amber-100/60 text-xs font-bold flex items-center justify-center shadow-2xs"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Copies Pills */}
+              <div className="flex items-center gap-1">
+                {[1, 2, 5, 10, 25, 50].map((qty) => (
+                  <button
+                    key={qty}
+                    type="button"
+                    onClick={() => setCopies(qty)}
+                    className={`flex-1 py-0.5 rounded text-[10px] font-bold border transition ${
+                      copies === qty
+                        ? 'bg-amber-700 text-white border-amber-700 shadow-2xs'
+                        : 'bg-white text-stone-700 border-amber-200 hover:bg-amber-100/50'
+                    }`}
+                  >
+                    {qty}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Label Size Selection */}
+            {/* 2. Sticker Dimensions / Roll Format */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-semibold text-stone-800">
-                  Sticker Dimensions / Roll Format <span className="text-rose-500">*</span>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-stone-800">
+                  Label Format &amp; Dimensions
                 </label>
-                <span className="text-[10px] text-stone-500 font-mono">
+                <span className="text-[11px] font-mono font-bold text-amber-800">
                   {effectiveWidthMm}mm × {effectiveHeightMm}mm
                 </span>
               </div>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="grid grid-cols-1 gap-1.5 max-h-[190px] overflow-y-auto pr-1">
                 {SIZE_OPTIONS.map((opt) => {
                   const isSelected = selectedSize === opt.id;
                   return (
                     <div
                       key={opt.id}
-                      onClick={() => setSelectedSize(opt.id)}
-                      className={`cursor-pointer rounded-xl border p-2.5 transition ${
+                      onClick={() => handleSelectSize(opt.id)}
+                      className={`cursor-pointer rounded-lg border px-3 py-2 transition ${
                         isSelected
-                          ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500/50 shadow-xs'
+                          ? 'border-amber-500 bg-amber-50/70 ring-1 ring-amber-500/40 shadow-xs'
                           : 'border-cream-200 bg-white hover:border-cream-300 hover:bg-cream-50/50 shadow-2xs'
                       }`}
                     >
@@ -604,8 +823,8 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                             name="barcode-print-size"
                             id={`size-radio-${opt.id}`}
                             checked={isSelected}
-                            onChange={() => setSelectedSize(opt.id)}
-                            className="h-3.5 w-3.5 text-amber-600 border-cream-300 focus:ring-amber-500"
+                            onChange={() => handleSelectSize(opt.id)}
+                            className="h-3 w-3 text-amber-600 border-cream-300 focus:ring-amber-500"
                           />
                           <label
                             htmlFor={`size-radio-${opt.id}`}
@@ -618,9 +837,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                           {opt.dimensionsMm}
                         </span>
                       </div>
-                      <p className="mt-1 pl-5.5 text-[10.5px] text-stone-500 leading-normal">
-                        {opt.useCase}
-                      </p>
                     </div>
                   );
                 })}
@@ -629,28 +845,24 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 
             {/* Custom Dimensions Input (if Custom selected) */}
             {selectedSize === 'custom' && (
-              <div className="rounded-xl border border-amber-300 bg-amber-50/40 p-4 space-y-3">
-                <h4 className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
-                  <span>📐</span>
-                  <span>Enter Custom Roll Measurements</span>
-                </h4>
+              <div className="rounded-xl border border-amber-300 bg-amber-50/40 p-3 space-y-2">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-medium text-stone-700 mb-1">
-                      Sticker Width (mm)
+                      Width (mm)
                     </label>
                     <input
                       type="number"
-                      min={20}
+                      min={15}
                       max={150}
                       value={customWidthMm}
-                      onChange={(e) => setCustomWidthMm(Math.max(20, Math.min(150, parseInt(e.target.value, 10) || 50)))}
+                      onChange={(e) => setCustomWidthMm(Math.max(15, Math.min(150, parseInt(e.target.value, 10) || 50)))}
                       className="w-full h-8 rounded-lg border border-cream-300 bg-white px-2.5 text-xs font-bold text-stone-900 focus:border-amber-600 focus:outline-none"
                     />
                   </div>
                   <div>
                     <label className="block text-[11px] font-medium text-stone-700 mb-1">
-                      Sticker Height (mm)
+                      Height (mm)
                     </label>
                     <input
                       type="number"
@@ -665,76 +877,274 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               </div>
             )}
 
-            {/* Copies & Content Selection */}
-            <div className="rounded-xl border border-cream-200 bg-cream-50/50 p-4 space-y-3.5">
+            {/* 3. Barcode Size & Appearance */}
+            <div className="rounded-xl border border-cream-200 bg-white p-3 space-y-2.5 shadow-2xs">
               <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-stone-800">
+                  Barcode Bar Dimensions
+                </label>
+                <span className="text-[11px] font-mono text-stone-600 font-bold">
+                  H: {barcodeHeight}px • W: {barcodeWidthScale}x
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-stone-800 font-bold">Number of Copies</label>
-                  <p className="text-[10px] text-stone-500">Stickers to print in batch</p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setCopies(Math.max(1, copies - 1))}
-                    className="h-7 w-7 rounded bg-white border border-cream-300 text-stone-700 hover:bg-cream-100 text-xs font-bold flex items-center justify-center shadow-xs"
-                  >
-                    -
-                  </button>
+                  <div className="flex justify-between text-[10px] text-stone-500 mb-1">
+                    <span>Barcode Height</span>
+                    <span>{barcodeHeight}px</span>
+                  </div>
                   <input
-                    type="number"
-                    min={1}
-                    max={2000}
-                    value={copies}
-                    onChange={(e) => setCopies(Math.max(1, Math.min(2000, parseInt(e.target.value, 10) || 1)))}
-                    className="h-7 w-14 rounded border border-cream-300 bg-white text-center text-xs font-bold text-stone-900 focus:border-amber-600 focus:outline-none"
+                    type="range"
+                    min={12}
+                    max={50}
+                    step={2}
+                    value={barcodeHeight}
+                    onChange={(e) => setBarcodeHeight(parseInt(e.target.value, 10))}
+                    className="w-full accent-amber-600 cursor-pointer"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setCopies(Math.min(2000, copies + 1))}
-                    className="h-7 w-7 rounded bg-white border border-cream-300 text-stone-700 hover:bg-cream-100 text-xs font-bold flex items-center justify-center shadow-xs"
-                  >
-                    +
-                  </button>
+                </div>
+                <div>
+                  <div className="flex justify-between text-[10px] text-stone-500 mb-1">
+                    <span>Bar Density / Width</span>
+                    <span>{barcodeWidthScale}x</span>
+                  </div>
+                  <div className="flex gap-1">
+                    {[0.8, 1.0, 1.2, 1.4].map((scale) => (
+                      <button
+                        key={scale}
+                        type="button"
+                        onClick={() => setBarcodeWidthScale(scale)}
+                        className={`flex-1 py-1 rounded text-[10px] font-bold border transition ${
+                          barcodeWidthScale === scale
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-cream-50 text-stone-700 border-cream-200 hover:bg-cream-100'
+                        }`}
+                      >
+                        {scale}x
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Fine-Tuning: Font Size & Spacing Margins */}
+            <div className="rounded-xl border border-cream-200 bg-white p-3 space-y-2.5 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-stone-800">
+                  Typography &amp; Spacing
+                </label>
+                <span className="text-[11px] font-mono text-stone-600">
+                  Font: {fontSizeScale}%
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] text-stone-500 mb-1">Font Size Scale</label>
+                  <div className="flex gap-1">
+                    {[80, 100, 120, 135].map((scale) => (
+                      <button
+                        key={scale}
+                        type="button"
+                        onClick={() => setFontSizeScale(scale)}
+                        className={`flex-1 py-1 rounded text-[10px] font-bold border transition ${
+                          fontSizeScale === scale
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-cream-50 text-stone-700 border-cream-200 hover:bg-cream-100'
+                        }`}
+                      >
+                        {scale}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[10px] text-stone-500 mb-1">
+                    <span>Roll Offset (Calibrate)</span>
+                    <span>{horizontalOffsetMm > 0 ? `+${horizontalOffsetMm}` : horizontalOffsetMm} mm</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={-4}
+                    max={4}
+                    step={0.5}
+                    value={horizontalOffsetMm}
+                    onChange={(e) => setHorizontalOffsetMm(parseFloat(e.target.value))}
+                    className="w-full accent-amber-600 cursor-pointer"
+                  />
                 </div>
               </div>
 
-              {/* Quick Copies Pills */}
-              <div className="flex items-center gap-1.5 pt-1">
-                <span className="text-[10px] text-stone-500 font-medium">Presets:</span>
-                {[1, 5, 10, 25, 50, 100].map((qty) => (
-                  <button
-                    key={qty}
-                    type="button"
-                    onClick={() => setCopies(qty)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold border transition ${
-                      copies === qty
-                        ? 'bg-amber-600 text-white border-amber-600'
-                        : 'bg-white text-stone-700 border-cream-300 hover:bg-cream-100'
-                    }`}
-                  >
-                    {qty}
-                  </button>
-                ))}
+              {/* Margins/Padding */}
+              <div className="grid grid-cols-2 gap-3 pt-1 border-t border-cream-100">
+                <div>
+                  <div className="flex justify-between text-[10px] text-stone-500 mb-1">
+                    <span>Horizontal Padding</span>
+                    <span>{horizontalPaddingMm} mm</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={4}
+                    step={0.5}
+                    value={horizontalPaddingMm}
+                    onChange={(e) => setHorizontalPaddingMm(parseFloat(e.target.value))}
+                    className="w-full accent-amber-600 cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <div className="flex justify-between text-[10px] text-stone-500 mb-1">
+                    <span>Vertical Padding</span>
+                    <span>{verticalPaddingMm} mm</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={3}
+                    step={0.5}
+                    value={verticalPaddingMm}
+                    onChange={(e) => setVerticalPaddingMm(parseFloat(e.target.value))}
+                    className="w-full accent-amber-600 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Content Visibility Toggles */}
+            <div className="rounded-xl border border-cream-200 bg-white p-3 space-y-2 shadow-2xs">
+              <label className="text-xs font-bold text-stone-800 block">
+                Content Visibility Toggles
+              </label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showProductName}
+                    onChange={(e) => setShowProductName(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded text-amber-600 border-cream-300 focus:ring-amber-500"
+                  />
+                  <span className="text-stone-800 text-[11px] font-medium">Product Name</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showPrice}
+                    disabled={isGoldSilverJewellery}
+                    onChange={(e) => setShowPrice(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded text-amber-600 border-cream-300 focus:ring-amber-500 disabled:opacity-50"
+                  />
+                  <span className="text-stone-800 text-[11px] font-medium">
+                    {isGoldSilverJewellery ? 'Price (Dynamic Rate)' : 'Selling Price'}
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showBarcodeValue}
+                    onChange={(e) => setShowBarcodeValue(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded text-amber-600 border-cream-300 focus:ring-amber-500"
+                  />
+                  <span className="text-stone-800 text-[11px] font-medium">Barcode Text</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showPurchaseCode}
+                    onChange={(e) => setShowPurchaseCode(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded text-amber-600 border-cream-300 focus:ring-amber-500"
+                  />
+                  <span className="text-stone-800 text-[11px] font-medium">Purchase Code</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showCategory}
+                    onChange={(e) => setShowCategory(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded text-amber-600 border-cream-300 focus:ring-amber-500"
+                  />
+                  <span className="text-stone-800 text-[11px] font-medium">Category Name</span>
+                </label>
+
+                {isGoldSilverJewellery && (
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showPurityWeight}
+                      onChange={(e) => setShowPurityWeight(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded text-amber-600 border-cream-300 focus:ring-amber-500"
+                    />
+                    <span className="text-stone-800 text-[11px] font-medium">Purity &amp; Weight</span>
+                  </label>
+                )}
               </div>
             </div>
           </div>
 
           {/* Right Live Preview Panel */}
-          <div className="w-full md:w-1/2 flex flex-col justify-between p-6 bg-cream-50/40">
+          <div className="w-full md:w-[52%] flex flex-col justify-between p-5 bg-stone-100/70 border-l border-cream-200">
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-stone-600">
-                  Physical Sticker Live Preview
-                </h3>
-                <span className="rounded-full border border-amber-300/80 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
-                  {effectiveWidthMm} × {effectiveHeightMm} mm
-                </span>
+              {/* Preview Controls Bar */}
+              <div className="flex items-center justify-between mb-3 px-1">
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded-lg border border-cream-300 bg-white p-0.5 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewMode('single')}
+                      className={`px-2.5 py-1 rounded text-xs font-bold transition ${
+                        previewMode === 'single'
+                          ? 'bg-amber-600 text-white shadow-2xs'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      Single Sticker (1:1)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewMode('roll')}
+                      className={`px-2.5 py-1 rounded text-xs font-bold transition ${
+                        previewMode === 'roll'
+                          ? 'bg-amber-600 text-white shadow-2xs'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      Roll Strip View
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-900">
+                    {effectiveWidthMm} × {effectiveHeightMm} mm
+                  </span>
+                  <div className="flex items-center gap-1 bg-white border border-cream-300 rounded px-1.5 py-0.5 text-[11px] font-bold text-stone-700 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewZoom((z) => Math.max(75, z - 15))}
+                      className="hover:text-amber-600"
+                    >
+                      -
+                    </button>
+                    <span className="w-8 text-center">{previewZoom}%</span>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewZoom((z) => Math.min(150, z + 15))}
+                      className="hover:text-amber-600"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {/* Tag Preview Area */}
-              <div className="flex flex-col items-center justify-center p-6 rounded-2xl border border-cream-200 bg-cream-100/70 min-h-[360px]">
+              {/* Tag Preview Canvas */}
+              <div className="flex flex-col items-center justify-center p-6 rounded-2xl border border-cream-300 bg-gradient-to-b from-stone-200/50 to-stone-300/40 min-h-[380px] max-h-[440px] overflow-auto shadow-inner relative">
                 {selectedSize === 'jewellery_85x15' ? (
-                  /* 85mm x 15mm Jewellery Rat-Tail Tag Preview (55mm Printable Head on Left + 30mm Tail Loop on Right) */
+                  /* 85mm x 15mm Jewellery Rat-Tail Tag Preview */
                   <div className="w-full max-w-lg flex flex-col items-center space-y-3">
                     <div className="w-full flex justify-between text-[10px] text-stone-500 font-semibold px-2">
                       <span>◄ Printable Head (55mm × 15mm) ►</span>
@@ -748,23 +1158,37 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                         <div className="w-1/2 p-1.5 flex flex-col justify-between text-left overflow-hidden border-r border-dashed border-stone-300">
                           <div>
                             {showProductName && (
-                              <div className="font-bold text-stone-900 text-[10px] leading-tight truncate" title={product.name}>
+                              <div
+                                className="font-bold text-stone-900 leading-tight truncate"
+                                style={{ fontSize: `${10 * (fontSizeScale / 100)}px` }}
+                                title={product.name}
+                              >
                                 {product.name}
                               </div>
                             )}
-                            <div className="font-semibold text-amber-900 text-[9px] leading-tight mt-0.5 truncate">
-                              {purityWeightDisplay || (weightText ? `Wt: ${weightText}` : '')}
-                            </div>
+                            {showPurityWeight && (
+                              <div
+                                className="font-semibold text-amber-900 leading-tight mt-0.5 truncate"
+                                style={{ fontSize: `${9 * (fontSizeScale / 100)}px` }}
+                              >
+                                {purityWeightDisplay || (weightText ? `Wt: ${weightText}` : '')}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Down Left: Selling Making Charges, Down Right: Purchase Code */}
-                          <div className="w-full flex items-end justify-between text-[8px] font-bold text-stone-900 leading-none pt-1 border-t border-stone-200">
-                            <span className="text-amber-800 font-bold truncate max-w-[55%]">
+                          <div className="w-full flex items-end justify-between leading-none pt-1 border-t border-stone-200 font-bold">
+                            <span
+                              className="text-amber-800 font-bold truncate max-w-[55%]"
+                              style={{ fontSize: `${8.5 * (fontSizeScale / 100)}px` }}
+                            >
                               {isGoldSilverJewellery
                                 ? (makingChargeDisplay || (makingChargePerGram ? `MC: ₹${makingChargePerGram}/g` : 'MC: -'))
                                 : (showPrice && priceDisplay ? priceDisplay : '')}
                             </span>
-                            <span className="font-mono text-stone-900 tracking-wider truncate max-w-[45%] text-right ml-auto">
+                            <span
+                              className="font-mono text-stone-900 tracking-wider truncate max-w-[45%] text-right ml-auto"
+                              style={{ fontSize: `${8.5 * (fontSizeScale / 100)}px` }}
+                            >
                               {showPurchaseCode && purchaseCode ? purchaseCode : ''}
                             </span>
                           </div>
@@ -775,13 +1199,10 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                           <BarcodeGraphic
                             barcode={product.barcode}
                             size="jewellery_85x15"
-                            height={18}
-                            width={0.8}
-                            displayValue={false}
+                            height={barcodeHeight}
+                            width={barcodeWidthScale}
+                            displayValue={showBarcodeValue}
                           />
-                          <div className="font-mono text-[8px] font-bold text-stone-800 tracking-wider mt-0.5 truncate">
-                            {product.barcode}
-                          </div>
                         </div>
 
                         <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 text-[7px] text-stone-400 font-mono select-none">
@@ -798,7 +1219,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                     </div>
                   </div>
                 ) : selectedSize === 'jewellery_100x13' ? (
-                  /* 100mm x 13mm Jewellery Rat-Tail Tag Preview (55mm Printable Head on Left + 45mm Tail Loop on Right) */
+                  /* 100mm x 13mm Jewellery Rat-Tail Tag Preview */
                   <div className="w-full max-w-md flex flex-col items-center space-y-3">
                     <div className="w-full flex justify-between text-[10px] text-stone-500 font-semibold px-2">
                       <span>◄ Printable Head (55mm × 13mm) ►</span>
@@ -806,29 +1227,42 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                     </div>
 
                     <div className="w-full flex items-center bg-transparent drop-shadow-md">
-                      {/* Printable Head: 55mm (Left Flap: 27.5mm + Right Flap: 27.5mm) */}
                       <div className="w-[55%] h-[68px] bg-white rounded-l-md border-2 border-stone-800 flex items-stretch overflow-hidden relative">
                         {/* Left Flap: 27.5mm */}
                         <div className="w-1/2 p-1.5 flex flex-col justify-between text-left overflow-hidden border-r border-dashed border-stone-300">
                           <div>
                             {showProductName && (
-                              <div className="font-bold text-stone-900 text-[10px] leading-tight truncate" title={product.name}>
+                              <div
+                                className="font-bold text-stone-900 leading-tight truncate"
+                                style={{ fontSize: `${9.5 * (fontSizeScale / 100)}px` }}
+                                title={product.name}
+                              >
                                 {product.name}
                               </div>
                             )}
-                            <div className="font-semibold text-amber-900 text-[9px] leading-tight mt-0.5 truncate">
-                              {purityWeightDisplay || (weightText ? `Wt: ${weightText}` : '')}
-                            </div>
+                            {showPurityWeight && (
+                              <div
+                                className="font-semibold text-amber-900 leading-tight mt-0.5 truncate"
+                                style={{ fontSize: `${8.5 * (fontSizeScale / 100)}px` }}
+                              >
+                                {purityWeightDisplay || (weightText ? `Wt: ${weightText}` : '')}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Down Left: Selling Making Charges, Down Right: Purchase Code */}
-                          <div className="w-full flex items-end justify-between text-[8px] font-bold text-stone-900 leading-none pt-1 border-t border-stone-200">
-                            <span className="text-amber-800 font-bold truncate max-w-[55%]">
+                          <div className="w-full flex items-end justify-between leading-none pt-1 border-t border-stone-200 font-bold">
+                            <span
+                              className="text-amber-800 font-bold truncate max-w-[55%]"
+                              style={{ fontSize: `${8 * (fontSizeScale / 100)}px` }}
+                            >
                               {isGoldSilverJewellery
                                 ? (makingChargeDisplay || (makingChargePerGram ? `MC: ₹${makingChargePerGram}/g` : 'MC: -'))
                                 : (showPrice && priceDisplay ? priceDisplay : '')}
                             </span>
-                            <span className="font-mono text-stone-900 tracking-wider truncate max-w-[45%] text-right ml-auto">
+                            <span
+                              className="font-mono text-stone-900 tracking-wider truncate max-w-[45%] text-right ml-auto"
+                              style={{ fontSize: `${8 * (fontSizeScale / 100)}px` }}
+                            >
                               {showPurchaseCode && purchaseCode ? purchaseCode : ''}
                             </span>
                           </div>
@@ -839,13 +1273,10 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                           <BarcodeGraphic
                             barcode={product.barcode}
                             size="jewellery_100x13"
-                            height={16}
-                            width={0.8}
-                            displayValue={false}
+                            height={barcodeHeight}
+                            width={barcodeWidthScale}
+                            displayValue={showBarcodeValue}
                           />
-                          <div className="font-mono text-[8px] font-bold text-stone-800 tracking-wider mt-0.5 truncate">
-                            {product.barcode}
-                          </div>
                         </div>
 
                         <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 text-[7px] text-stone-400 font-mono select-none">
@@ -861,59 +1292,131 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       </div>
                     </div>
                   </div>
+                ) : previewMode === 'roll' ? (
+                  /* Multi-Sticker Roll Strip Preview */
+                  <div className="w-full max-w-xs flex flex-col items-center space-y-2 py-2">
+                    <span className="text-[10px] font-mono text-stone-500 uppercase tracking-wider font-semibold">
+                      Continuous Roll Paper Strip ({copies} Total)
+                    </span>
+                    <div className="w-full bg-white rounded-xl shadow-xl border border-stone-300 p-2 flex flex-col divide-y-2 divide-dashed divide-stone-300">
+                      {[1, 2, 3].map((itemNum) => (
+                        <div
+                          key={itemNum}
+                          style={{
+                            padding: `${verticalPaddingMm * 2.8}px ${horizontalPaddingMm * 2.8}px`,
+                            transform: horizontalOffsetMm ? `translateX(${horizontalOffsetMm * 2.8}px)` : undefined,
+                          }}
+                          className="flex flex-col justify-between items-center py-2 relative"
+                        >
+                          <span className="absolute top-1 right-1 text-[8px] font-mono text-stone-400">
+                            #{itemNum}
+                          </span>
+                          {showProductName && (
+                            <div
+                              className="font-bold text-stone-900 text-center truncate w-full"
+                              style={{ fontSize: `${(effectiveHeightMm <= 25 ? 9 : 10) * (fontSizeScale / 100)}px` }}
+                            >
+                              {product.name}
+                            </div>
+                          )}
+                          <div className="my-1 w-full flex justify-center">
+                            <BarcodeGraphic
+                              barcode={product.barcode}
+                              size={selectedSize}
+                              height={Math.round(barcodeHeight * 0.75)}
+                              width={barcodeWidthScale}
+                              displayValue={showBarcodeValue}
+                            />
+                          </div>
+                          <div className="w-full flex items-center justify-between text-xs font-bold pt-0.5 border-t border-stone-300">
+                            <span
+                              className="text-stone-900 truncate"
+                              style={{ fontSize: `${(effectiveHeightMm <= 25 ? 8.5 : 9.5) * (fontSizeScale / 100)}px` }}
+                            >
+                              {showPrice && priceDisplay ? priceDisplay : ''}
+                            </span>
+                            <span
+                              className="font-mono text-stone-900 truncate ml-auto"
+                              style={{ fontSize: `${(effectiveHeightMm <= 25 ? 8.5 : 9.5) * (fontSizeScale / 100)}px` }}
+                            >
+                              {showPurchaseCode && purchaseCode ? purchaseCode : ''}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 ) : (
-                  /* Standard Thermal Barcode Sticker Preview */
+                  /* Standard 1:1 Thermal Barcode Sticker Canvas */
                   <div className="flex flex-col items-center">
-                    {/* Thermal Sticker Roll Representation */}
                     <div
                       style={{
-                        width: `${Math.min(320, activeOption.previewWidthPx)}px`,
-                        height: `${Math.min(220, activeOption.previewHeightPx)}px`,
-                        transform: horizontalOffsetMm ? `translateX(${horizontalOffsetMm * 3}px)` : undefined,
+                        width: `${previewCanvasWidthPx}px`,
+                        height: `${previewCanvasHeightPx}px`,
+                        padding: `${verticalPaddingMm * 3.78}px ${horizontalPaddingMm * 3.78}px`,
+                        transform: horizontalOffsetMm ? `translateX(${horizontalOffsetMm * 3.78}px)` : undefined,
                       }}
-                      className="bg-white text-black rounded-lg shadow-xl p-2.5 border border-stone-300 flex flex-col justify-between items-center transition-all duration-200 relative select-none"
+                      className="bg-white text-black rounded-lg shadow-xl border-2 border-stone-800 flex flex-col justify-between items-center transition-all duration-150 relative select-none"
                     >
-                      {/* Top: Product Name */}
+                      {/* Top: Product Name & Category */}
                       <div className="w-full text-center overflow-hidden">
                         {showProductName && (
-                          <div className="font-bold text-stone-900 leading-tight text-xs truncate">
+                          <div
+                            className="font-bold text-stone-900 leading-tight truncate"
+                            style={{
+                              fontSize: `${(effectiveHeightMm <= 25 ? 10.5 : 12) * (fontSizeScale / 100)}px`,
+                            }}
+                          >
                             {product.name}
                           </div>
                         )}
                         {showCategory && (
-                          <div className="text-stone-500 text-[9px] leading-tight truncate">
+                          <div
+                            className="text-stone-500 leading-tight truncate"
+                            style={{ fontSize: `${9 * (fontSizeScale / 100)}px` }}
+                          >
                             {product.categoryName}
                           </div>
                         )}
                       </div>
 
-                      {/* Middle: Scannable Barcode */}
-                      <div className="w-full flex items-center justify-center my-auto py-1">
+                      {/* Middle: Barcode Graphic */}
+                      <div className="w-full flex items-center justify-center my-auto py-0.5">
                         <BarcodeGraphic
                           barcode={product.barcode}
                           size={selectedSize}
+                          height={barcodeHeight}
+                          width={barcodeWidthScale}
                           displayValue={showBarcodeValue}
                         />
                       </div>
 
-                      {/* Bottom Row: Info on LEFT, Code on RIGHT */}
+                      {/* Bottom Row: Price on Left, Code on Right */}
                       <div className="w-full flex items-center justify-between pt-1 border-t border-stone-800 text-xs">
-                        {/* Left Info: Purity/Weight for Gold/Silver Jewellery, or Price for standard items */}
-                        <div className="font-bold text-stone-900 text-left truncate pr-1">
+                        <div
+                          className="font-bold text-stone-900 text-left truncate pr-1"
+                          style={{
+                            fontSize: `${(effectiveHeightMm <= 25 ? 10 : 11.5) * (fontSizeScale / 100)}px`,
+                          }}
+                        >
                           {isGoldSilverJewellery
                             ? (showPurityWeight && purityWeightDisplay ? purityWeightDisplay : '')
                             : (showPrice && priceDisplay ? priceDisplay : '')}
                         </div>
 
-                        {/* Code on Right */}
-                        <div className="font-mono font-bold text-stone-900 text-right tracking-wider truncate pl-1">
+                        <div
+                          className="font-mono font-bold text-stone-900 text-right tracking-wider truncate pl-1"
+                          style={{
+                            fontSize: `${(effectiveHeightMm <= 25 ? 10 : 11.5) * (fontSizeScale / 100)}px`,
+                          }}
+                        >
                           {showPurchaseCode && purchaseCode ? purchaseCode : (showBarcodeValue ? '' : product.barcode)}
                         </div>
                       </div>
                     </div>
 
-                    <div className="mt-2 text-[10px] text-stone-500 font-mono flex items-center gap-3">
-                      <span>{isGoldSilverJewellery ? 'Purity & Weight' : 'Rate'} on <strong>Left</strong></span>
+                    <div className="mt-3 text-[10px] text-stone-500 font-mono flex items-center gap-3">
+                      <span>Rate on <strong>Left</strong></span>
                       <span>•</span>
                       <span>Code on <strong>Right</strong></span>
                       <span>•</span>
@@ -923,35 +1426,52 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                 )}
               </div>
 
-              <div className="mt-3 text-center text-[11px] text-stone-500">
-                Generated with standard Code 128 format. Optical scanner tested for 1D/2D POS handheld laser readers.
+              <div className="mt-2 text-center text-[11px] text-stone-500 font-medium">
+                Live interactive rendering. Matches hardware printer thermal head output 1:1.
               </div>
             </div>
 
-            {/* Print Action Buttons */}
-            <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-cream-200 mt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isPrinting}
-                className="rounded-lg border border-cream-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-cream-100 transition disabled:opacity-50 shadow-xs"
-              >
-                Cancel
-              </button>
+            {/* Print Action Bottom Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-cream-200 mt-2 bg-white/70 p-3 rounded-xl border">
+              <div className="text-xs">
+                <span className="font-bold text-stone-800">
+                  Target: {selectedPrinter ? selectedPrinter : 'Default Windows Printer'}
+                </span>
+                <p className="text-[11px] text-stone-500">
+                  {directPrint ? 'Direct hardware spooling (Zero dialog)' : 'Windows OS Print Dialog'}
+                </p>
+              </div>
 
-              {/* Primary Batch Print */}
-              <button
-                id="btn-confirm-print-barcode"
-                type="button"
-                onClick={() => executePrint()}
-                disabled={isPrinting}
-                className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-500 transition disabled:opacity-50"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                </svg>
-                {isPrinting ? 'Opening Print Dialog...' : `Print ${copies} ${copies > 1 ? 'Labels' : 'Label'} (${effectiveWidthMm}×{effectiveHeightMm}mm)`}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={isPrinting}
+                  className="rounded-lg border border-cream-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-cream-100 transition disabled:opacity-50 shadow-xs"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  id="btn-confirm-print-barcode"
+                  type="button"
+                  onClick={() => executePrint()}
+                  disabled={isPrinting}
+                  className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-500 transition disabled:opacity-50"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+                    />
+                  </svg>
+                  {isPrinting
+                    ? 'Spooling to Printer...'
+                    : `Print ${copies} ${copies > 1 ? 'Labels' : 'Label'} (${effectiveWidthMm}×{effectiveHeightMm}mm)`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -994,76 +1514,21 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   box-sizing: border-box !important;
                 }
 
-                /* Layout & Display Utilities */
                 .flex { display: flex !important; }
-                .inline-flex { display: inline-flex !important; }
                 .flex-col { flex-direction: column !important; }
                 .flex-row { flex-direction: row !important; }
-                .flex-1 { flex: 1 1 0% !important; }
-                .shrink-0 { flex-shrink: 0 !important; }
                 .items-center { align-items: center !important; }
                 .items-stretch { align-items: stretch !important; }
                 .justify-between { justify-content: space-between !important; }
-                .justify-around { justify-content: space-around !important; }
                 .justify-center { justify-content: center !important; }
                 .justify-start { justify-content: flex-start !important; }
-                .block { display: block !important; }
-                .inline-block { display: inline-block !important; }
-                .box-border { box-sizing: border-box !important; }
-                .overflow-hidden { overflow: hidden !important; }
-
-                /* Sizing Utilities */
                 .w-full { width: 100% !important; }
                 .h-full { height: 100% !important; }
-                .max-w-full { max-width: 100% !important; }
-                .max-h-full { max-height: 100% !important; }
-                .h-auto { height: auto !important; }
-                .min-h-0 { min-height: 0 !important; }
-
-                /* Typography Utilities */
-                .text-left { text-align: left !important; }
-                .text-right { text-align: right !important; }
-                .text-center { text-align: center !important; }
                 .truncate { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
-                .leading-none { line-height: 1 !important; }
-                .leading-tight { line-height: 1.15 !important; }
                 .font-mono { font-family: monospace !important; }
                 .font-bold { font-weight: bold !important; }
-                .font-semibold { font-weight: 600 !important; }
-                .tracking-wider { letter-spacing: 0.05em !important; }
-                .tracking-tight { letter-spacing: -0.025em !important; }
                 .text-black { color: #000000 !important; }
 
-                /* Tailwind font-size utilities */
-                .text-\\\\[5\\\\.5pt\\\\] { font-size: 5.5pt !important; }
-                .text-\\\\[6pt\\\\] { font-size: 6pt !important; }
-                .text-\\\\[7pt\\\\] { font-size: 7pt !important; }
-                .text-\\\\[8pt\\\\] { font-size: 8pt !important; }
-                .text-\\\\[8\\\\.5px\\\\] { font-size: 8.5px !important; }
-                .text-\\\\[8px\\\\] { font-size: 8px !important; }
-                .text-\\\\[9px\\\\] { font-size: 9px !important; }
-                .text-\\\\[10px\\\\] { font-size: 10px !important; }
-
-                /* Spacing Utilities */
-                .ml-auto { margin-left: auto !important; }
-                .mr-auto { margin-right: auto !important; }
-                .mx-auto { margin-left: auto !important; margin-right: auto !important; }
-                .my-auto { margin-top: auto !important; margin-bottom: auto !important; }
-                .mx-0\\\\.5 { margin-left: 0.5mm !important; margin-right: 0.5mm !important; }
-                .px-0\\\\.5 { padding-left: 0.5mm !important; padding-right: 0.5mm !important; }
-                .py-1 { padding-top: 1mm !important; padding-bottom: 1mm !important; }
-                .mt-0\\\\.5 { margin-top: 0.5mm !important; }
-                .pt-1 { padding-top: 1mm !important; }
-                .pl-1 { padding-left: 1mm !important; }
-                .pr-1 { padding-right: 1mm !important; }
-
-                /* Border Utilities */
-                .border-r { border-right-width: 1px !important; }
-                .border-t { border-top-width: 1px !important; }
-                .border-dotted { border-style: dotted !important; }
-                .border-black { border-color: #000000 !important; }
-
-                /* Barcode SVG scaling - respects container height and width */
                 svg {
                   width: 100% !important;
                   max-width: 100% !important;
@@ -1073,7 +1538,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   margin: 0 auto !important;
                 }
 
-                /* Standard thermal label page */
                 .barcode-label-page {
                   width: ${effectiveWidthMm}mm !important;
                   height: ${effectiveHeightMm}mm !important;
@@ -1092,11 +1556,11 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   text-align: center !important;
                   overflow: hidden !important;
                   background: #ffffff !important;
+                  background-color: #ffffff !important;
                   color: #000000 !important;
                   transform: ${horizontalOffsetMm ? `translateX(${horizontalOffsetMm}mm)` : 'none'} !important;
                 }
 
-                /* Jewellery rat-tail tag page: Exactly 100mm x 13mm matching @page size and physical roll */
                 .barcode-label-page.barcode-label-jewellery {
                   width: 100mm !important;
                   height: 13mm !important;
@@ -1112,7 +1576,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   transform: ${horizontalOffsetMm ? `translateX(${horizontalOffsetMm}mm)` : 'none'} !important;
                 }
 
-                /* Jewellery rat-tail tag page: Exactly 85mm x 15mm matching @page size and physical roll */
                 .barcode-label-page.barcode-label-jewellery-85x15 {
                   width: 85mm !important;
                   height: 15mm !important;
@@ -1138,7 +1601,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
 
           {Array.from({ length: copiesToPrint }).map((_, copyIndex) => (
             selectedSize === 'jewellery_85x15' ? (
-              /* 85mm x 15mm Jewellery Rat-Tail Tag (55mm Printable Head on Left + 30mm Non-Gum Tail on Right) */
+              /* 85mm x 15mm Jewellery Rat-Tail Tag */
               <div
                 key={copyIndex}
                 className="barcode-label-page barcode-label-jewellery-85x15"
@@ -1195,7 +1658,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       {showProductName && (
                         <div
                           style={{
-                            fontSize: '6.5pt',
+                            fontSize: `${6.5 * (fontSizeScale / 100)}pt`,
                             fontWeight: 'bold',
                             color: '#000000',
                             lineHeight: 1.1,
@@ -1211,7 +1674,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       {showPurityWeight && (purityWeightDisplay || weightText) && (
                         <div
                           style={{
-                            fontSize: '6pt',
+                            fontSize: `${6 * (fontSizeScale / 100)}pt`,
                             fontWeight: 600,
                             color: '#000000',
                             lineHeight: 1,
@@ -1226,7 +1689,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       )}
                     </div>
 
-                    {/* Down Left: Selling Making Charges, Down Right: Purchase Code */}
                     <div
                       style={{
                         width: '100%',
@@ -1240,7 +1702,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                     >
                       <span
                         style={{
-                          fontSize: '5.5pt',
+                          fontSize: `${5.5 * (fontSizeScale / 100)}pt`,
                           fontWeight: 'bold',
                           color: '#000000',
                           textAlign: 'left',
@@ -1251,36 +1713,28 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                         }}
                       >
                         {isGoldSilverJewellery
-                          ? (makingChargeDisplay || (makingChargePerGram ? `MC: ₹${makingChargePerGram}/g` : ''))
+                          ? (makingChargeDisplay || (makingChargePerGram ? `MC: ₹${makingChargePerGram}/g` : 'MC: -'))
                           : (showPrice && priceDisplay ? priceDisplay : '')}
                       </span>
                       <span
                         style={{
-                          fontSize: '5.5pt',
-                          fontWeight: 'bold',
                           fontFamily: 'monospace',
+                          fontSize: `${5.5 * (fontSizeScale / 100)}pt`,
+                          fontWeight: 'bold',
                           color: '#000000',
                           textAlign: 'right',
-                          marginLeft: 'auto',
+                          letterSpacing: '0.5px',
                           whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          maxWidth: '10mm',
+                          marginLeft: 'auto',
                         }}
                       >
                         {showPurchaseCode && purchaseCode ? purchaseCode : ''}
                       </span>
                     </div>
                   </div>
-
-                  {/* Fold Line: Centered between 26.5mm flaps */}
-                  <div
-                    style={{
-                      width: '1px',
-                      height: '11mm',
-                      borderRight: '1px dotted #000000',
-                      margin: '0 0.5mm',
-                      flexShrink: 0,
-                      opacity: 0.5,
-                    }}
-                  />
 
                   {/* Right Flap: 26.5mm */}
                   <div
@@ -1313,33 +1767,16 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       <BarcodeGraphic
                         barcode={product.barcode}
                         size="jewellery_85x15"
-                        height={18}
-                        width={0.8}
-                        displayValue={false}
+                        height={barcodeHeight}
+                        width={barcodeWidthScale}
+                        displayValue={showBarcodeValue}
                         className="h-full max-h-full"
                       />
                     </div>
-                    {showBarcodeValue && (
-                      <div
-                        style={{
-                          fontFamily: 'monospace',
-                          fontSize: '5.5pt',
-                          fontWeight: 'bold',
-                          color: '#000000',
-                          letterSpacing: '0.05em',
-                          lineHeight: 1,
-                          marginTop: '0.3mm',
-                          textAlign: 'center',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {product.barcode}
-                      </div>
-                    )}
                   </div>
                 </div>
 
-                {/* Non-Gum Tail Loop Area: Exactly 30mm × 15mm on the right (blank) */}
+                {/* Non-Gum Tail Loop: 30mm */}
                 <div
                   style={{
                     width: '30mm',
@@ -1352,7 +1789,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                 />
               </div>
             ) : selectedSize === 'jewellery_100x13' ? (
-              /* BAR-CODING TECH® 100mm x 13mm Roll Tag (55mm Printable Head on Left + 45mm Non-Gum Tail on Right) */
+              /* BAR-CODING TECH® 100mm x 13mm Roll Tag */
               <div
                 key={copyIndex}
                 className="barcode-label-page barcode-label-jewellery"
@@ -1409,7 +1846,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       {showProductName && (
                         <div
                           style={{
-                            fontSize: '6.5pt',
+                            fontSize: `${6.5 * (fontSizeScale / 100)}pt`,
                             fontWeight: 'bold',
                             color: '#000000',
                             lineHeight: 1.1,
@@ -1425,7 +1862,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       {showPurityWeight && (purityWeightDisplay || weightText) && (
                         <div
                           style={{
-                            fontSize: '6pt',
+                            fontSize: `${5.5 * (fontSizeScale / 100)}pt`,
                             fontWeight: 600,
                             color: '#000000',
                             lineHeight: 1,
@@ -1440,7 +1877,6 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       )}
                     </div>
 
-                    {/* Down Left: Selling Making Charges, Down Right: Purchase Code */}
                     <div
                       style={{
                         width: '100%',
@@ -1454,7 +1890,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                     >
                       <span
                         style={{
-                          fontSize: '5.5pt',
+                          fontSize: `${5.5 * (fontSizeScale / 100)}pt`,
                           fontWeight: 'bold',
                           color: '#000000',
                           textAlign: 'left',
@@ -1465,36 +1901,28 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                         }}
                       >
                         {isGoldSilverJewellery
-                          ? (makingChargeDisplay || (makingChargePerGram ? `MC: ₹${makingChargePerGram}/g` : ''))
+                          ? (makingChargeDisplay || (makingChargePerGram ? `MC: ₹${makingChargePerGram}/g` : 'MC: -'))
                           : (showPrice && priceDisplay ? priceDisplay : '')}
                       </span>
                       <span
                         style={{
-                          fontSize: '5.5pt',
-                          fontWeight: 'bold',
                           fontFamily: 'monospace',
+                          fontSize: `${5.5 * (fontSizeScale / 100)}pt`,
+                          fontWeight: 'bold',
                           color: '#000000',
                           textAlign: 'right',
-                          marginLeft: 'auto',
+                          letterSpacing: '0.5px',
                           whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          maxWidth: '10mm',
+                          marginLeft: 'auto',
                         }}
                       >
                         {showPurchaseCode && purchaseCode ? purchaseCode : ''}
                       </span>
                     </div>
                   </div>
-
-                  {/* Fold Line: Centered between 26.5mm flaps */}
-                  <div
-                    style={{
-                      width: '1px',
-                      height: '10mm',
-                      borderRight: '1px dotted #000000',
-                      margin: '0 0.5mm',
-                      flexShrink: 0,
-                      opacity: 0.5,
-                    }}
-                  />
 
                   {/* Right Flap: 26.5mm */}
                   <div
@@ -1527,33 +1955,16 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       <BarcodeGraphic
                         barcode={product.barcode}
                         size="jewellery_100x13"
-                        height={15}
-                        width={0.8}
-                        displayValue={false}
+                        height={barcodeHeight}
+                        width={barcodeWidthScale}
+                        displayValue={showBarcodeValue}
                         className="h-full max-h-full"
                       />
                     </div>
-                    {showBarcodeValue && (
-                      <div
-                        style={{
-                          fontFamily: 'monospace',
-                          fontSize: '5.5pt',
-                          fontWeight: 'bold',
-                          color: '#000000',
-                          letterSpacing: '0.05em',
-                          lineHeight: 1,
-                          marginTop: '0.3mm',
-                          textAlign: 'center',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {product.barcode}
-                      </div>
-                    )}
                   </div>
                 </div>
 
-                {/* Non-Gum Tail Loop Area: Exactly 45mm × 13mm on the right (blank) */}
+                {/* Non-Gum Tail: 45mm */}
                 <div
                   style={{
                     width: '45mm',
@@ -1584,7 +1995,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   {showProductName && (
                     <div
                       style={{
-                        fontSize: effectiveHeightMm <= 25 ? '7pt' : '8pt',
+                        fontSize: `${(effectiveHeightMm <= 25 ? 7 : 8) * (fontSizeScale / 100)}pt`,
                         fontWeight: 'bold',
                         color: '#000000',
                         whiteSpace: 'nowrap',
@@ -1598,7 +2009,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   {showCategory && (
                     <div
                       style={{
-                        fontSize: '6pt',
+                        fontSize: `${6 * (fontSizeScale / 100)}pt`,
                         color: '#333333',
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
@@ -1620,13 +2031,15 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                     flex: '1 1 0%',
                     minHeight: 0,
                     maxHeight: '100%',
-                    margin: '0.3mm 0',
+                    margin: '0.2mm 0',
                     overflow: 'hidden',
                   }}
                 >
                   <BarcodeGraphic
                     barcode={product.barcode}
                     size={selectedSize}
+                    height={barcodeHeight}
+                    width={barcodeWidthScale}
                     displayValue={showBarcodeValue}
                     className="h-full max-h-full"
                   />
@@ -1639,7 +2052,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    fontSize: effectiveHeightMm <= 25 ? '7pt' : '8pt',
+                    fontSize: `${(effectiveHeightMm <= 25 ? 7 : 8) * (fontSizeScale / 100)}pt`,
                     lineHeight: 1.1,
                     paddingTop: '0.4mm',
                     borderTop: '0.5pt solid #000000',
@@ -1648,7 +2061,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                     flexShrink: 0,
                   }}
                 >
-                  {/* Left: Purity & Weight for Gold/Silver Jewellery, or Rate for regular items */}
+                  {/* Left: Rate / Dynamic rate */}
                   <div
                     style={{
                       fontWeight: 'bold',

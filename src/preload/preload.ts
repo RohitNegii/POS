@@ -12,6 +12,7 @@ import type {
   ListProductsFilter,
   LoginCredentials,
   PosDesktopApi,
+  PrinterInfo,
   ProductDto,
   ProtectedTestPayload,
   ReorderCategoryFieldsRequest,
@@ -26,6 +27,7 @@ import type {
 // when running inside Electron's strict sandboxed preload environment (sandbox: true).
 const CHANNELS = {
   SYSTEM_GET_STATUS: 'system:get-status',
+  SYSTEM_GET_PRINTERS: 'system:get-printers',
   DATABASE_PING: 'database:ping',
   AUTH_LOGIN: 'auth:login',
   AUTH_LOGOUT: 'auth:logout',
@@ -97,6 +99,9 @@ const CHANNELS = {
 const posDesktopApi: PosDesktopApi = Object.freeze({
   getSystemStatus: (): Promise<IpcResult<SystemStatusPayload>> => {
     return ipcRenderer.invoke(CHANNELS.SYSTEM_GET_STATUS);
+  },
+  getPrinters: (): Promise<IpcResult<PrinterInfo[]>> => {
+    return ipcRenderer.invoke(CHANNELS.SYSTEM_GET_PRINTERS);
   },
   pingDatabase: (): Promise<IpcResult<DatabasePingPayload>> => {
     return ipcRenderer.invoke(CHANNELS.DATABASE_PING);

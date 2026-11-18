@@ -286,8 +286,36 @@ export type IpcResult<T> =
   | { success: true; data: T }
   | { success: false; error: string };
 
+export interface PrinterInfo {
+  name: string;
+  displayName: string;
+  description: string;
+  status: number;
+  isDefault: boolean;
+  options?: Record<string, any>;
+}
+
+export interface PrintBarcodeOptions {
+  html: string;
+  widthMm: number;
+  heightMm: number;
+  deviceName?: string;
+  copies?: number;
+  silent?: boolean;
+  landscape?: boolean;
+  margins?: {
+    marginType?: 'default' | 'none' | 'printableArea' | 'custom';
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+  };
+  scaleFactor?: number;
+}
+
 export interface PosDesktopApi {
   getSystemStatus: () => Promise<IpcResult<SystemStatusPayload>>;
+  getPrinters: () => Promise<IpcResult<PrinterInfo[]>>;
   pingDatabase: () => Promise<IpcResult<DatabasePingPayload>>;
   login: (credentials: LoginCredentials) => Promise<IpcResult<AuthSessionPayload>>;
   logout: () => Promise<IpcResult<void>>;
@@ -312,7 +340,7 @@ export interface PosDesktopApi {
   saveDailyMetalRates: (input: SaveDailyRatesRequest) => Promise<IpcResult<CurrentMetalRatesDto>>;
   getMetalRateHistory: () => Promise<IpcResult<MetalRateHistoryItemDto[]>>;
   calculateJewelleryPrice: (input: JewelleryCalculationInput) => Promise<IpcResult<JewelleryPriceCalculationResult>>;
-  printBarcode: (input: string | { html: string; widthMm: number; heightMm: number }) => Promise<IpcResult<{ printed: boolean }>>;
+  printBarcode: (input: string | PrintBarcodeOptions | { html: string; widthMm: number; heightMm: number }) => Promise<IpcResult<{ printed: boolean }>>;
   generateBarcode: (input: { productName: string; categoryName: string; existingBarcodes?: string[] }) => Promise<IpcResult<string>>;
   scanBillingProduct: (barcode: string) => Promise<IpcResult<ScannedProductDto>>;
   searchBillingProducts: (query?: string) => Promise<IpcResult<ScannedProductDto[]>>;

@@ -12,6 +12,8 @@ import type {
   LoginCredentials,
   ProductDto,
   ProtectedTestPayload,
+  PrinterInfo,
+  PrintBarcodeOptions,
   ReorderCategoryFieldsRequest,
   SystemStatusPayload,
   UpdateCategoryFieldRequest,
@@ -72,6 +74,16 @@ export const ipcClient = {
       };
     }
     return window.posApi.getSystemStatus();
+  },
+
+  async getPrinters(): Promise<IpcResult<PrinterInfo[]>> {
+    if (!window.posApi?.getPrinters) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.getPrinters) is not available.',
+      };
+    }
+    return window.posApi.getPrinters();
   },
 
   async pingDatabase(): Promise<IpcResult<DatabasePingPayload>> {
@@ -276,7 +288,7 @@ export const ipcClient = {
   },
 
   async printBarcode(
-    input: string | { html: string; widthMm: number; heightMm: number }
+    input: string | PrintBarcodeOptions | { html: string; widthMm: number; heightMm: number }
   ): Promise<IpcResult<{ printed: boolean }>> {
     if (!window.posApi) {
       return {

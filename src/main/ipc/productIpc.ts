@@ -4,6 +4,7 @@ import type {
   CreateProductRequest,
   IpcResult,
   ListProductsFilter,
+  PrintBarcodeOptions,
   ProductDto,
   UpdateProductRequest,
 } from '../../shared/types/ipc';
@@ -140,13 +141,17 @@ export function registerProductIpcHandlers(): void {
     IPC_CHANNELS.PRODUCT_PRINT_BARCODE,
     async (
       _event,
-      input: string | { html: string; widthMm: number; heightMm: number }
+      input: string | PrintBarcodeOptions | { html: string; widthMm: number; heightMm: number }
     ): Promise<IpcResult<{ printed: boolean }>> => {
       let printWin: BrowserWindow | null = null;
       try {
         let htmlToPrint = '';
         let targetWidthMm = 50;
         let targetHeightMm = 25;
+        let deviceName: string | undefined = undefined;
+        let copies = 1;
+        let silent = false;
+        let landscape = false;
 
         if (typeof input === 'string') {
           const prod = await productService.getProductById(input);
@@ -177,6 +182,22 @@ export function registerProductIpcHandlers(): void {
           htmlToPrint = input.html;
           targetWidthMm = input.widthMm || 50;
           targetHeightMm = input.heightMm || 25;
+          if ('deviceName' in input && input.deviceName) {
+            deviceName = input.deviceName.trim() || undefined;
+          }
+          if ('copies' in input && input.copies && input.copies > 0) {
+            copies = Math.round(input.copies);
+          }
+          if ('silent' in input && typeof input.silent === 'boolean') {
+            silent = input.silent;
+          } else {
+            // When a specific printer device is chosen, print directly (silent: true).
+            // If no printer device was chosen, open the Windows OS print dialog (silent: false).
+            silent = Boolean(deviceName);
+          }
+          if ('landscape' in input && typeof input.landscape === 'boolean') {
+            landscape = input.landscape;
+          }
         }
 
         printWin = new BrowserWindow({
@@ -205,7 +226,7 @@ export function registerProductIpcHandlers(): void {
         );
 
         // Wait for the injected content to fully render (SVGs, layout, fonts)
-        await new Promise((resolve) => setTimeout(resolve, 400));
+        await new Promise((resolve) => setTimeout(resolve, 450));
 
         return await new Promise<IpcResult<{ printed: boolean }>>((resolve) => {
           if (!printWin) {
@@ -213,19 +234,29 @@ export function registerProductIpcHandlers(): void {
             return;
           }
 
-          printWin.webContents.print(
-            {
-              silent: false,
-              printBackground: true,
-              pageSize: {
-                width: Math.round(targetWidthMm * 1000), // microns
-                height: Math.round(targetHeightMm * 1000),
-              },
-              margins: { marginType: 'none' },
+          const printOptions: any = {
+            silent,
+            printBackground: true,
+            pageSize: {
+              width: Math.round(targetWidthMm * 1000), // microns
+              height: Math.round(targetHeightMm * 1000),
             },
+            margins: { marginType: 'none' },
+            landscape,
+          };
+
+          if (deviceName) {
+            printOptions.deviceName = deviceName;
+          }
+          if (copies && copies > 0) {
+            printOptions.copies = copies;
+          }
+
+          printWin.webContents.print(
+            printOptions,
             (success, failureReason) => {
-              // Delay window close to ensure the Windows print spooler and PDF Save dialog
-              // have completely finished reading and writing the rendered content
+              // Delay window close to ensure the Windows print spooler
+              // has completely finished writing the rendered content
               setTimeout(() => {
                 if (printWin) {
                   try {
@@ -235,12 +266,19 @@ export function registerProductIpcHandlers(): void {
                   }
                   printWin = null;
                 }
-              }, 5000);
+              }, 4000);
 
-              if (!success && failureReason && failureReason !== 'cancelled') {
-                resolve({ success: false, error: failureReason });
+              if (!success) {
+                if (failureReason === 'cancelled') {
+                  resolve({ success: true, data: { printed: false } });
+                } else {
+                  resolve({
+                    success: false,
+                    error: failureReason ? `Printer error: ${failureReason}` : 'Printer offline or unable to print label.',
+                  });
+                }
               } else {
-                resolve({ success: true, data: { printed: success } });
+                resolve({ success: true, data: { printed: true } });
               }
             }
           );
