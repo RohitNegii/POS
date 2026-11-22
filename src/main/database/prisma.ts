@@ -842,6 +842,29 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS "financial_transactions_type_idx" ON "financial_transactions"("type");
   `);
 
+  // Idempotent bootstrap for backup_histories table
+  await client.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "backup_histories" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "filename" TEXT NOT NULL,
+      "drive_file_id" TEXT,
+      "size_bytes" INTEGER NOT NULL DEFAULT 0,
+      "backup_type" TEXT NOT NULL,
+      "status" TEXT NOT NULL,
+      "error_message" TEXT,
+      "checksum" TEXT,
+      "metadata_json" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "completed_at" DATETIME
+    );
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "backup_histories_status_idx" ON "backup_histories"("status");
+  `);
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "backup_histories_created_at_idx" ON "backup_histories"("created_at");
+  `);
+
   // Ensure fixed system companies and development admin users exist idempotently
   await seedAll(client);
 

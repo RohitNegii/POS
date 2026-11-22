@@ -382,6 +382,15 @@ export interface PosDesktopApi {
   updateExpenseCategory: (input: UpdateExpenseCategoryRequest) => Promise<IpcResult<ExpenseCategoryDto>>;
   deleteExpenseCategory: (id: string) => Promise<IpcResult<{ message: string }>>;
   listEmployees: () => Promise<IpcResult<BillingUserDto[]>>;
+  getBackupStatus: () => Promise<IpcResult<BackupStatusDto>>;
+  startGoogleDriveAuth: () => Promise<IpcResult<{ authUrl: string; waitingForAuth: boolean }>>;
+  disconnectGoogleDrive: () => Promise<IpcResult<void>>;
+  saveBackupConfig: (input: SaveBackupConfigRequest) => Promise<IpcResult<BackupStatusDto>>;
+  triggerBackupNow: () => Promise<IpcResult<BackupHistoryDto>>;
+  listBackupHistory: (limit?: number) => Promise<IpcResult<BackupHistoryDto[]>>;
+  restoreBackup: (input: RestoreBackupRequest) => Promise<IpcResult<RestoreBackupResultDto>>;
+  getBackupRecoveryKey: () => Promise<IpcResult<{ recoveryKey: string }>>;
+  setBackupRecoveryKey: (key: string) => Promise<IpcResult<{ success: boolean }>>;
 }
 
 export interface ScannedProductDto {
@@ -1003,6 +1012,57 @@ export interface GetCompanyExpenseTotalsParams {
   startDate?: string;
   endDate?: string;
 }
+
+export interface BackupStatusDto {
+  isConnected: boolean;
+  connectedEmail?: string;
+  driveFolderName: string;
+  driveFolderId?: string;
+  schedulerEnabled: boolean;
+  scheduledTime: string; // e.g. "22:00"
+  nextScheduledRun?: string;
+  lastBackupAt?: string;
+  lastBackupStatus?: 'SUCCESS' | 'FAILED' | 'IN_PROGRESS';
+  lastBackupFilename?: string;
+  retentionCount: number;
+  hasCustomCredentials: boolean;
+  isBackingUp: boolean;
+}
+
+export interface SaveBackupConfigRequest {
+  scheduledTime?: string;
+  schedulerEnabled?: boolean;
+  retentionCount?: number;
+  googleClientId?: string;
+  googleClientSecret?: string;
+}
+
+export interface BackupHistoryDto {
+  id: string;
+  filename: string;
+  driveFileId?: string | null;
+  sizeBytes: number;
+  backupType: 'AUTOMATIC' | 'MANUAL' | 'MISSED_SCHEDULED';
+  status: 'SUCCESS' | 'FAILED' | 'IN_PROGRESS';
+  errorMessage?: string | null;
+  checksum?: string | null;
+  metadataJson?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface RestoreBackupRequest {
+  backupId: string;
+}
+
+export interface RestoreBackupResultDto {
+  success: boolean;
+  restoredAt: string;
+  emergencyBackupPath: string;
+  tablesRestored: number;
+  message: string;
+}
+
 
 
 

@@ -300,48 +300,50 @@ export const CustomerRecordsPage: React.FC<CustomerRecordsPageProps> = ({
         <div className="border-b border-cream-200 bg-cream-50/70 p-4 space-y-3">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             {/* Search Input Box */}
-            <div className="relative flex-1 max-w-md flex items-center">
-              <span className="absolute left-3.5 text-stone-400 pointer-events-none">
+            <div className="relative flex-1 max-w-md">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-stone-400">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-              </span>
+              </div>
               <input
                 id="search-customer-input"
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by customer phone number or name..."
-                className="w-full rounded-xl border border-cream-300 bg-white py-2 pl-9.5 pr-8 text-xs font-medium text-stone-900 placeholder:text-stone-400 shadow-2xs focus:border-amber-500 focus:outline-hidden focus:ring-1 focus:ring-amber-500 transition"
+                className="w-full rounded-xl border border-cream-300 bg-white py-2.5 pl-10 pr-16 text-xs font-medium text-stone-900 placeholder:text-stone-400 shadow-2xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition"
               />
-              {search && (
+              <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 gap-1">
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    className="p-1 text-stone-400 hover:text-stone-600 transition"
+                    title="Clear search"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => setSearch('')}
-                  className="absolute right-9 p-1 text-stone-400 hover:text-stone-600 transition"
-                  title="Clear search"
+                  onClick={() => void refreshCustomerRecords()}
+                  disabled={loading}
+                  className="p-1 text-stone-400 hover:text-stone-700 hover:bg-cream-100 rounded-lg transition"
+                  title="Refresh customer list"
                 >
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <svg
+                    className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-amber-600' : ''}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void refreshCustomerRecords()}
-                disabled={loading}
-                className="absolute right-2 p-1 text-stone-400 hover:text-stone-700 hover:bg-cream-100 rounded-lg transition"
-                title="Refresh customer list"
-              >
-                <svg
-                  className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-amber-600' : ''}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
+              </div>
             </div>
 
             {/* Sort & Page Size Controls */}

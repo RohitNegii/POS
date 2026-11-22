@@ -70,6 +70,15 @@ export const IPC_CHANNELS = {
   EMPLOYEE_CREATE: 'employee:create',
   EMPLOYEE_UPDATE: 'employee:update',
   EMPLOYEE_DELETE: 'employee:delete',
+  BACKUP_GET_STATUS: 'backup:get-status',
+  BACKUP_START_AUTH: 'backup:start-auth',
+  BACKUP_DISCONNECT: 'backup:disconnect',
+  BACKUP_SAVE_CONFIG: 'backup:save-config',
+  BACKUP_TRIGGER_NOW: 'backup:trigger-now',
+  BACKUP_LIST_HISTORY: 'backup:list-history',
+  BACKUP_RESTORE: 'backup:restore',
+  BACKUP_GET_RECOVERY_KEY: 'backup:get-recovery-key',
+  BACKUP_SET_RECOVERY_KEY: 'backup:set-recovery-key',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

@@ -57,6 +57,11 @@ import type {
   ListExpensesFilter,
   UpdateExpenseCategoryRequest,
   UpdateExpenseRequest,
+  BackupHistoryDto,
+  BackupStatusDto,
+  RestoreBackupRequest,
+  RestoreBackupResultDto,
+  SaveBackupConfigRequest,
 } from '../../shared/types/ipc';
 
 
@@ -751,6 +756,96 @@ export const ipcClient = {
       };
     }
     return window.posApi.listEmployees();
+  },
+
+  async getBackupStatus(): Promise<IpcResult<BackupStatusDto>> {
+    if (!window.posApi?.getBackupStatus) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.getBackupStatus) is not available.',
+      };
+    }
+    return window.posApi.getBackupStatus();
+  },
+
+  async startGoogleDriveAuth(): Promise<IpcResult<{ authUrl: string; waitingForAuth: boolean }>> {
+    if (!window.posApi?.startGoogleDriveAuth) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.startGoogleDriveAuth) is not available.',
+      };
+    }
+    return window.posApi.startGoogleDriveAuth();
+  },
+
+  async disconnectGoogleDrive(): Promise<IpcResult<void>> {
+    if (!window.posApi?.disconnectGoogleDrive) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.disconnectGoogleDrive) is not available.',
+      };
+    }
+    return window.posApi.disconnectGoogleDrive();
+  },
+
+  async saveBackupConfig(input: SaveBackupConfigRequest): Promise<IpcResult<BackupStatusDto>> {
+    if (!window.posApi?.saveBackupConfig) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.saveBackupConfig) is not available.',
+      };
+    }
+    return window.posApi.saveBackupConfig(input);
+  },
+
+  async triggerBackupNow(): Promise<IpcResult<BackupHistoryDto>> {
+    if (!window.posApi?.triggerBackupNow) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.triggerBackupNow) is not available.',
+      };
+    }
+    return window.posApi.triggerBackupNow();
+  },
+
+  async listBackupHistory(limit?: number): Promise<IpcResult<BackupHistoryDto[]>> {
+    if (!window.posApi?.listBackupHistory) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.listBackupHistory) is not available.',
+      };
+    }
+    return window.posApi.listBackupHistory(limit);
+  },
+
+  async restoreBackup(input: RestoreBackupRequest): Promise<IpcResult<RestoreBackupResultDto>> {
+    if (!window.posApi?.restoreBackup) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.restoreBackup) is not available.',
+      };
+    }
+    return window.posApi.restoreBackup(input);
+  },
+
+  async getBackupRecoveryKey(): Promise<IpcResult<{ recoveryKey: string }>> {
+    if (!window.posApi?.getBackupRecoveryKey) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.getBackupRecoveryKey) is not available.',
+      };
+    }
+    return window.posApi.getBackupRecoveryKey();
+  },
+
+  async setBackupRecoveryKey(key: string): Promise<IpcResult<{ success: boolean }>> {
+    if (!window.posApi?.setBackupRecoveryKey) {
+      return {
+        success: false,
+        error: 'Secure preload bridge (window.posApi.setBackupRecoveryKey) is not available.',
+      };
+    }
+    return window.posApi.setBackupRecoveryKey(key);
   },
 };
 

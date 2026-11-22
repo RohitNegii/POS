@@ -13,6 +13,7 @@ import { PurchaseHistoryPage } from './pages/PurchaseHistoryPage';
 import { BillingUsersPage } from './pages/BillingUsersPage';
 import { CustomerRecordsPage } from './pages/CustomerRecordsPage';
 import { ExpenseManagementPage } from './pages/ExpenseManagementPage';
+import { CloudBackupPage } from './pages/CloudBackupPage';
 import { useOverduePurchases } from './hooks/useOverduePurchases';
 
 import { ToastProvider } from './context/ToastContext';
@@ -45,7 +46,9 @@ const AppContent: React.FC = () => {
           setCurrentView('billing-users');
         } else {
           setCurrentView((prev) =>
-            prev === 'billing-users' || prev === 'expenses' ? prev : 'billing-users'
+            prev === 'billing-users' || prev === 'expenses' || prev === 'cloud-backup'
+              ? prev
+              : 'billing-users'
           );
         }
       } else if (auth.session.role === 'BILLING_USER') {
@@ -67,7 +70,8 @@ const AppContent: React.FC = () => {
             prev === 'billing' ||
             prev === 'customer-records' ||
             prev === 'billing-users' ||
-            prev === 'expenses'
+            prev === 'expenses' ||
+            prev === 'cloud-backup'
               ? 'products'
               : prev
           );
@@ -117,12 +121,12 @@ const AppContent: React.FC = () => {
       session={auth.session}
       currentView={currentView}
       onNavigate={(view) => {
-        // Block non-super-admins from navigating to billing users or expenses
-        if (!isSuperAdmin && (view === 'billing-users' || view === 'expenses')) {
+        // Block non-super-admins from navigating to billing users, expenses, or cloud-backup
+        if (!isSuperAdmin && (view === 'billing-users' || view === 'expenses' || view === 'cloud-backup')) {
           return;
         }
-        // Super admin only has access to billing users and expenses
-        if (isSuperAdmin && view !== 'billing-users' && view !== 'expenses') {
+        // Super admin only has access to billing users, expenses, and cloud-backup
+        if (isSuperAdmin && view !== 'billing-users' && view !== 'expenses' && view !== 'cloud-backup') {
           return;
         }
         // Block company admins from navigating to cashier billing terminal or customer records
@@ -155,6 +159,8 @@ const AppContent: React.FC = () => {
         <BillingUsersPage session={auth.session} />
       ) : currentView === 'expenses' && isSuperAdmin ? (
         <ExpenseManagementPage session={auth.session} />
+      ) : currentView === 'cloud-backup' && isSuperAdmin ? (
+        <CloudBackupPage session={auth.session} />
       ) : currentView === 'billing' && isBillingUser ? (
         <BillingPage
           session={auth.session}

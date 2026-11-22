@@ -9,6 +9,7 @@ import { registerPurchaseIpcHandlers } from './purchaseIpc';
 import { registerSystemIpcHandlers } from './systemIpc';
 import { registerVendorIpcHandlers } from './vendorIpc';
 import { registerExpenseIpcHandlers } from './expenseIpc';
+import { registerBackupIpcHandlers } from './backupIpc';
 
 export function registerAllIpcHandlers(): void {
   registerSystemIpcHandlers();
@@ -22,5 +23,6 @@ export function registerAllIpcHandlers(): void {
   registerVendorIpcHandlers();
   registerPurchaseIpcHandlers();
   registerExpenseIpcHandlers();
+  registerBackupIpcHandlers();
 }
 

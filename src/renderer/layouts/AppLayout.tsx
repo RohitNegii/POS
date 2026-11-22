@@ -13,7 +13,8 @@ export type AppNavView =
   | 'purchases'
   | 'billing-users'
   | 'customer-records'
-  | 'expenses';
+  | 'expenses'
+  | 'cloud-backup';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -135,6 +136,32 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                     <span>Expense Management</span>
                   </div>
                   {currentView === 'expenses' && (
+                    <span className="h-2 w-2 rounded-full bg-purple-600" />
+                  )}
+                </button>
+
+                <button
+                  id="nav-cloud-backup"
+                  type="button"
+                  onClick={() => onNavigate('cloud-backup')}
+                  className={`w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-xs font-semibold transition ${
+                    currentView === 'cloud-backup'
+                      ? 'border-purple-300 bg-white text-stone-900 shadow-sm'
+                      : 'border-transparent text-stone-600 hover:bg-cream-200/60 hover:text-stone-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <svg className="h-4 w-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 00-9.78 2.096A4.001 4.001 0 003 15z"
+                      />
+                    </svg>
+                    <span>Cloud Backup</span>
+                  </div>
+                  {currentView === 'cloud-backup' && (
                     <span className="h-2 w-2 rounded-full bg-purple-600" />
                   )}
                 </button>

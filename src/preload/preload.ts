@@ -94,6 +94,15 @@ const CHANNELS = {
   EXPENSE_CATEGORY_UPDATE: 'expense-category:update',
   EXPENSE_CATEGORY_DELETE: 'expense-category:delete',
   EMPLOYEE_LIST: 'employee:list',
+  BACKUP_GET_STATUS: 'backup:get-status',
+  BACKUP_START_AUTH: 'backup:start-auth',
+  BACKUP_DISCONNECT: 'backup:disconnect',
+  BACKUP_SAVE_CONFIG: 'backup:save-config',
+  BACKUP_TRIGGER_NOW: 'backup:trigger-now',
+  BACKUP_LIST_HISTORY: 'backup:list-history',
+  BACKUP_RESTORE: 'backup:restore',
+  BACKUP_GET_RECOVERY_KEY: 'backup:get-recovery-key',
+  BACKUP_SET_RECOVERY_KEY: 'backup:set-recovery-key',
 } as const;
 
 const posDesktopApi: PosDesktopApi = Object.freeze({
@@ -300,6 +309,33 @@ const posDesktopApi: PosDesktopApi = Object.freeze({
   },
   listEmployees: (): Promise<IpcResult<any>> => {
     return ipcRenderer.invoke(CHANNELS.EMPLOYEE_LIST);
+  },
+  getBackupStatus: (): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_GET_STATUS);
+  },
+  startGoogleDriveAuth: (): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_START_AUTH);
+  },
+  disconnectGoogleDrive: (): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_DISCONNECT);
+  },
+  saveBackupConfig: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_SAVE_CONFIG, input);
+  },
+  triggerBackupNow: (): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_TRIGGER_NOW);
+  },
+  listBackupHistory: (limit?: number): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_LIST_HISTORY, limit);
+  },
+  restoreBackup: (input: any): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_RESTORE, input);
+  },
+  getBackupRecoveryKey: (): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_GET_RECOVERY_KEY);
+  },
+  setBackupRecoveryKey: (recoveryKey: string): Promise<IpcResult<any>> => {
+    return ipcRenderer.invoke(CHANNELS.BACKUP_SET_RECOVERY_KEY, { recoveryKey });
   },
 });
 

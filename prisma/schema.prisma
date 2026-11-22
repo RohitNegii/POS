@@ -468,3 +468,22 @@ model FinancialTransaction {
   @@index([type])
   @@map("financial_transactions")
 }
+
+/// Tracks all automatic and manual Google Drive cloud backups.
+model BackupHistory {
+  id              String    @id @default(uuid())
+  filename        String
+  driveFileId     String?   @map("drive_file_id")
+  sizeBytes       Int       @default(0) @map("size_bytes")
+  backupType      String    @map("backup_type") // 'AUTOMATIC' | 'MANUAL' | 'MISSED_SCHEDULED'
+  status          String    // 'SUCCESS' | 'FAILED' | 'IN_PROGRESS'
+  errorMessage    String?   @map("error_message")
+  checksum        String?   // SHA-256 of encrypted file
+  metadataJson    String?   @map("metadata_json") // JSON string with counts, version, etc.
+  createdAt       DateTime  @default(now()) @map("created_at")
+  completedAt     DateTime? @map("completed_at")
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("backup_histories")
+}

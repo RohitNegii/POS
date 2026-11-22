@@ -3,6 +3,7 @@ import * as path from 'path';
 import { APP_CONSTANTS } from '../shared/constants/appConstants';
 import { disconnectDatabase, initializeDatabase } from './database/prisma';
 import { registerAllIpcHandlers } from './ipc';
+import { backupScheduler } from './services/backupScheduler';
 import { authService } from './services/authService';
 import { categoryService } from './services/categoryService';
 import { systemService } from './services/systemService';
@@ -243,6 +244,7 @@ app
   .then(async () => {
     await initializeDatabase();
     registerAllIpcHandlers();
+    backupScheduler.init();
     await createMainWindow();
 
     app.on('activate', async () => {
@@ -263,5 +265,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async () => {
+  backupScheduler.stop();
   await disconnectDatabase();
 });
